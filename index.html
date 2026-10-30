@@ -11,10 +11,12 @@
 <link rel="icon" href="favicon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
 <link rel="apple-touch-icon" href="apple-touch-icon.png">
-<meta name="theme-color" content="#0B1A2E">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="apple-mobile-web-app-title" content="OnRoute">
+<meta name="theme-color" content="#0D1B2A">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Raleway:wght@500;800&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
 <style>
 /* Layout: phone-sized customer app beside a kitchen tablet board; tabs swap them on narrow screens */
 :root{
@@ -177,14 +179,13 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
-/* Logo OnRoute: la "O" es el anillo de la ruta y va alineada como una letra más */
-.logo{display:flex;flex-direction:column;align-items:flex-start;gap:3px;color:var(--fg)}
-.wm-main{display:flex;align-items:baseline;font-family:var(--f-display);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;white-space:nowrap}
-.logo-o{height:.74em;width:auto;flex:none;align-self:baseline;margin-right:.03em;transform:translateY(.03em)}
-.wm-main em{font-style:normal;color:#3DBE6B}
-.logo small{font-size:11px;color:var(--muted);letter-spacing:.03em;line-height:1;padding-left:.15em}
-.logo.sm .wm-main{font-size:21px}
-.logo.sm small{font-size:9.5px}
+/* Logo OnRoute: la "O" verde es el remolino de la ruta y ocupa el lugar de la letra */
+.logo{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;color:var(--fg)}
+.wm-main{display:flex;align-items:baseline;font-family:"Raleway","Avenir Next",system-ui,sans-serif;font-weight:800;font-size:30px;line-height:1;letter-spacing:-.01em;white-space:nowrap}
+.logo-o{height:.86em;width:.86em;flex:none;margin-right:.01em;transform:translateY(.07em)}
+.logo small{font-family:"Raleway","Avenir Next",system-ui,sans-serif;font-weight:500;font-size:12.5px;color:var(--muted);line-height:1;letter-spacing:.01em}
+.logo.sm .wm-main{font-size:24px}
+.logo.sm small{font-size:10.5px}
 /* Cocina: tema oscuro fijo, como la tableta del camión */
 .kitchen{--surface:#13243D;--surface-2:#0F1E33;--fg:#EAF0F8;--muted:#8FA1BB;--line:#22385A;
   --ok:#3DBE6B;--ok-bg:#123623;--warn:#F2B451;--warn-bg:#3A2A0C;--red:#E04848;--red-ink:#FF7A7A;
@@ -351,7 +352,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 </style>
 
 <header class="top">
-  <div class="logo" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="8.6 8.6 47.4 46.8" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><em>n</em>Route</b><small>by InnovationTECH</small></div>
+  <div class="logo" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="5 5 54 54" aria-hidden="true"><defs><linearGradient id="og1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BE15D"/><stop offset=".55" stop-color="#3DBE6B"/><stop offset="1" stop-color="#17702F"/></linearGradient><mask id="om1"><rect x="0" y="0" width="64" height="64" fill="#fff"/><rect x="30.4" y="0" width="3.2" height="18" fill="#000" transform="rotate(42 32 32)"/></mask></defs><path mask="url(#om1)" fill="url(#og1)" fill-rule="evenodd" d="M32 6A26 26 0 1 1 31.99 6ZM35.5 11A18 18 0 1 0 35.51 11Z"/></svg>nRoute</b><small>by InnovationTECH</small></div>
   <span class="demo-tag" id="modeTag">Conectando…</span>
 </header>
 
@@ -400,7 +401,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
     <p class="panel-label">Lo que ve el food truck en la tableta</p>
     <div class="kitchen">
       <div class="k-top">
-        <div class="logo sm" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="8.6 8.6 47.4 46.8" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><em>n</em>Route</b><small>by InnovationTECH</small></div>
+        <div class="logo sm" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="5 5 54 54" aria-hidden="true"><defs><linearGradient id="og2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BE15D"/><stop offset=".55" stop-color="#3DBE6B"/><stop offset="1" stop-color="#17702F"/></linearGradient><mask id="om2"><rect x="0" y="0" width="64" height="64" fill="#fff"/><rect x="30.4" y="0" width="3.2" height="18" fill="#000" transform="rotate(42 32 32)"/></mask></defs><path mask="url(#om2)" fill="url(#og2)" fill-rule="evenodd" d="M32 6A26 26 0 1 1 31.99 6ZM35.5 11A18 18 0 1 0 35.51 11Z"/></svg>nRoute</b><small>by InnovationTECH</small></div>
         <button class="k-gear" data-ktab="config" aria-label="Configuración"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
       </div>
       <div class="k-head">
