@@ -177,16 +177,14 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
-/* Logo OnRoute */
-.logo{display:flex;align-items:center;gap:2px;color:var(--fg)}
-.logo-o{width:30px;height:30px;flex:none}
-.logo .wm{display:flex;flex-direction:column;line-height:1}
-.logo .wm b{font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:-.02em}
-.logo .wm em{font-style:normal;color:#3DBE6B}
-.logo .wm small{font-size:10.5px;color:var(--muted);letter-spacing:.02em;margin-top:2px;padding-left:1px}
-.logo.sm .logo-o{width:24px;height:24px}
-.logo.sm .wm b{font-size:20px}
-.logo.sm .wm small{font-size:9px}
+/* Logo OnRoute: la "O" es el anillo de la ruta y va alineada como una letra más */
+.logo{display:flex;flex-direction:column;align-items:flex-start;gap:3px;color:var(--fg)}
+.wm-main{display:flex;align-items:baseline;font-family:var(--f-display);font-weight:800;font-size:28px;line-height:1;letter-spacing:-.02em;white-space:nowrap}
+.logo-o{height:.74em;width:auto;flex:none;align-self:baseline;margin-right:.03em;transform:translateY(.03em)}
+.wm-main em{font-style:normal;color:#3DBE6B}
+.logo small{font-size:11px;color:var(--muted);letter-spacing:.03em;line-height:1;padding-left:.15em}
+.logo.sm .wm-main{font-size:21px}
+.logo.sm small{font-size:9.5px}
 /* Cocina: tema oscuro fijo, como la tableta del camión */
 .kitchen{--surface:#13243D;--surface-2:#0F1E33;--fg:#EAF0F8;--muted:#8FA1BB;--line:#22385A;
   --ok:#3DBE6B;--ok-bg:#123623;--warn:#F2B451;--warn-bg:#3A2A0C;--red:#E04848;--red-ink:#FF7A7A;
@@ -353,7 +351,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 </style>
 
 <header class="top">
-  <div class="logo" aria-label="OnRoute by InnovationTECH"><svg class="logo-o" viewBox="0 0 64 64" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><span class="wm"><b><em>n</em>Route</b><small>by InnovationTECH</small></span></div>
+  <div class="logo" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="8.6 8.6 47.4 46.8" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><em>n</em>Route</b><small>by InnovationTECH</small></div>
   <span class="demo-tag" id="modeTag">Conectando…</span>
 </header>
 
@@ -402,7 +400,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
     <p class="panel-label">Lo que ve el food truck en la tableta</p>
     <div class="kitchen">
       <div class="k-top">
-        <div class="logo sm" aria-label="OnRoute by InnovationTECH"><svg class="logo-o" viewBox="0 0 64 64" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><span class="wm"><b><em>n</em>Route</b><small>by InnovationTECH</small></span></div>
+        <div class="logo sm" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="8.6 8.6 47.4 46.8" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><em>n</em>Route</b><small>by InnovationTECH</small></div>
         <button class="k-gear" data-ktab="config" aria-label="Configuración"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
       </div>
       <div class="k-head">
