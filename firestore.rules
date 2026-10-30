@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pedidos: cualquiera puede verlos y crear uno nuevo;
+    // la cocina solo puede cambiar el estado. Nadie puede borrarlos desde la app.
+    match /orders/{id} {
+      allow read: if true;
+      allow create: if request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt'])
+        && request.resource.data.status == 'new'
+        && request.resource.data.who is string && request.resource.data.who.size() <= 40
+        && request.resource.data.total is number && request.resource.data.total < 1000;
+      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+        && request.resource.data.status in ['new','prep','ready','done'];
+      allow delete: if false;
+    }
+    // Botón de pausar pedidos en línea.
+    match /settings/truck {
+      allow read: if true;
+      allow write: if request.resource.data.keys().hasOnly(['paused']) && request.resource.data.paused is bool;
+    }
+  }
+}

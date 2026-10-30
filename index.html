@@ -251,6 +251,9 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
   </section>
 </main>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js"></script>
 <script>
 // Menú real de Tortas Tortuga. Combo = torta + Coca-Cola + Lay's. Solo torta = $1 menos. Precios con impuesto incluido.
 const MENU=[
@@ -438,7 +441,12 @@ window.addEventListener("hashchange",fromHash);fromHash();
 render();
 
 (async()=>{
-  try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+  // En GitHub Pages usa Firebase (firebase-config.js); dentro de claude.ai usa su base de datos.
+  if(window.FIREBASE_CONFIG&&window.firebase){
+    try{firebase.initializeApp(window.FIREBASE_CONFIG);db=firebase.firestore()}catch(e){db=null}
+  } else {
+    try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+  }
   if(!db){state.ready=true;setMode();render();return}
   state.live=true;setMode();
   db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
