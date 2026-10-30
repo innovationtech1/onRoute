@@ -63,7 +63,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 .open-pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:#1E8A4C;color:#fff;white-space:nowrap}
 .open-pill.closed{background:var(--red)}
 .loc{margin:14px 0 0;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:14px;overflow:hidden}
-.loc svg{display:block;width:100%;height:auto}
+#mapFallback{display:block;width:100%;height:auto}
 .loc-info{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;font-size:13px}
 .loc-info strong{display:block;color:#fff;font-size:14px}
 .loc-info span{color:#B9C6DA}
@@ -174,6 +174,12 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
 #map{height:150px;width:100%;background:var(--map-land)}
+.truck-pin{position:relative;width:34px;height:34px}
+.truck-pin b{position:absolute;left:5px;top:0;width:24px;height:24px;border-radius:50% 50% 50% 0;background:#D62828;border:3px solid #fff;transform:rotate(-45deg);box-shadow:0 3px 8px rgba(0,0,0,.35)}
+.truck-pin i{position:absolute;left:13px;top:8px;width:8px;height:8px;border-radius:50%;background:#fff}
+.truck-pin::after{content:"";position:absolute;left:7px;top:22px;width:20px;height:20px;border-radius:50%;background:rgba(214,40,40,.35);animation:pinpulse 2s infinite;z-index:-1}
+@keyframes pinpulse{0%{transform:scale(.4);opacity:1}100%{transform:scale(1.8);opacity:0}}
+@media (prefers-reduced-motion:reduce){.truck-pin::after{animation:none}}
 .loc-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
 .go{color:#fff;font-weight:700;font-size:12px;text-decoration:none;background:var(--red);border-radius:8px;padding:5px 9px;white-space:nowrap}
 .gps{border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:12px}
@@ -1245,7 +1251,7 @@ function renderLoc(){
       map.attributionControl.setPrefix(false);
       window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
       setTimeout(()=>map.invalidateSize(),200);
-      marker=window.L.circleMarker(ll,{radius:10,color:"#fff",weight:3,fillColor:"#D62828",fillOpacity:1}).addTo(map);
+      marker=window.L.marker(ll,{icon:window.L.divIcon({className:"",html:'<div class="truck-pin"><b></b><i></i></div>',iconSize:[34,34],iconAnchor:[17,32]}),title:"Tortas Tortuga"}).addTo(map);
     } else {marker.setLatLng(ll);map.panTo(ll)}
   }
 }
