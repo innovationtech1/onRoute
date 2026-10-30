@@ -1628,6 +1628,7 @@ async function stopGps(silent){
 document.addEventListener("visibilitychange",async()=>{if(watchId!==null&&document.visibilityState==="visible"&&navigator.wakeLock){try{wakeLock=await navigator.wakeLock.request("screen")}catch(e){}}});
 $("#gpsBtn").addEventListener("click",()=>{watchId===null?startGps():stopGps()});
 setInterval(renderLoc,60000);
+if("serviceWorker" in navigator&&location.protocol==="https:"&&!location.hostname.endsWith("claude.ai")){window.addEventListener("load",()=>{navigator.serviceWorker.register("sw.js").catch(e=>console.warn("OnRoute: no se pudo registrar el service worker",e))})}
 
 (async()=>{
   if(window.FIREBASE_CONFIG&&window.firebase){
