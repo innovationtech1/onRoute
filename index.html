@@ -1260,7 +1260,8 @@ function gpsUI(msg,cls){
   const b=$("#gpsBtn");b.textContent=watchId!==null?"Dejar de compartir":"Compartir ubicación";b.classList.toggle("stop",watchId!==null);
 }
 async function sendLoc(pos,force){
-  const now=Date.now(),ll=[pos.coords.latitude,pos.coords.longitude];
+  const now=Date.now(),ll=[pos.coords.latitude,pos.coords.longitude],acc=Math.round(pos.coords.accuracy||9999);
+  if(acc>150){gpsUI(`Ubicación imprecisa (±${acc} m), no se envió. Usa un celular con GPS y activa "Ubicación precisa" para este navegador.`,"bad");return}
   const moved=!lastPos||metersBetween(lastPos,ll)>40;
   if(!force&&(now-lastSent<15000||(!moved&&now-lastSent<60000)))return;
   lastSent=now;lastPos=ll;
