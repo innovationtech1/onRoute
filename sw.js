@@ -1,6 +1,6 @@
 // OnRoute service worker: permite instalar la app y abrirla aunque falle la red.
 // Los pedidos, el mapa y Firebase siempre van por internet (no se guardan aquí).
-const CACHE = "onroute-v1";
+const CACHE = "onroute-v2";
 const SHELL = ["./", "index.html", "firebase-config.js", "favicon.svg", "icon-192.png", "icon-512.png", "manifest.webmanifest"];
 
 self.addEventListener("install", e => {
