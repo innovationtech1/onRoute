@@ -1,0 +1,453 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0;font:14px system-ui,sans-serif}img{max-width:100%}[hidden]{display:none!important}</style>
+</head>
+<body>
+<title>OnRoute Demo</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
+<style>
+/* Layout: phone-sized customer app beside a kitchen tablet board; tabs swap them on narrow screens */
+:root{
+  --navy:#0B1F3A; --truck:#1F6B35; --gold:#F5B700; --red:#D62828; --red-ink:#B71F1F;
+  --bg:#EEF1F6; --surface:#FFFFFF; --surface-2:#F5F7FB;
+  --fg:#0B1F3A; --muted:#5A6A82; --line:#DCE2EC;
+  --ok:#1E8A4C; --ok-bg:#E3F4EA; --warn:#B26A00; --warn-bg:#FFF1D9;
+  --map-land:#E6EBF2; --map-road:#FFFFFF; --map-park:#D5E8D9;
+  --f-display:"Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --f-body:"Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --f-mono:"JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#070F1C; --surface:#0F1D33; --surface-2:#142640;
+  --fg:#EAF0F8; --muted:#9AA9BF; --line:#22375A; --red:#E84545; --red-ink:#FF6B6B;
+  --ok:#5FD08F; --ok-bg:#12321F; --warn:#F2B451; --warn-bg:#352708;
+  --map-land:#13243D; --map-road:#2A4066; --map-park:#173A2A; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#070F1C; --surface:#0F1D33; --surface-2:#142640;
+  --fg:#EAF0F8; --muted:#9AA9BF; --line:#22375A; --red:#E84545; --red-ink:#FF6B6B;
+  --ok:#5FD08F; --ok-bg:#12321F; --warn:#F2B451; --warn-bg:#352708;
+  --map-land:#13243D; --map-road:#2A4066; --map-park:#173A2A; color-scheme:dark}
+
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font-family:var(--f-body);font-size:15px;line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-offset:2px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+
+.top{max-width:1120px;margin:0 auto 18px;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px}
+.brand{display:flex;align-items:baseline;gap:10px}
+.brand b{font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:-.02em}
+.brand b span{color:var(--red)}
+.brand small{color:var(--muted);font-size:13px}
+.demo-tag{font-size:12px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--warn);background:var(--warn-bg);padding:4px 10px;border-radius:99px}
+.tabs{display:none;gap:6px;background:var(--surface);border:1px solid var(--line);padding:4px;border-radius:12px;max-width:1120px;margin:0 auto 14px}
+.tabs button{flex:1;border:0;background:transparent;padding:9px;border-radius:9px;font-weight:600;color:var(--muted)}
+.tabs button[aria-selected="true"]{background:var(--navy);color:#fff}
+
+.stage{max-width:1120px;margin:0 auto;display:grid;grid-template-columns:400px minmax(0,1fr);gap:28px;align-items:start}
+.panel-label{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px 4px}
+
+/* Customer phone */
+.phone{background:var(--surface);border:1px solid var(--line);border-radius:28px;overflow:hidden;box-shadow:0 18px 50px -24px rgba(11,31,58,.45);display:flex;flex-direction:column;min-height:720px;position:relative}
+.hero{background:var(--truck);color:#fff;padding:18px 18px 16px}
+.hero-row{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.truck-name{font-family:var(--f-display);font-weight:800;font-size:24px;letter-spacing:-.01em;margin:6px 0 2px;text-wrap:balance}
+.hero p{margin:0;color:#B9C6DA;font-size:13px}
+.open-pill{font-size:12px;font-weight:700;padding:4px 10px;border-radius:99px;background:#1E8A4C;color:#fff;white-space:nowrap}
+.open-pill.closed{background:var(--red)}
+.loc{margin:14px 0 0;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.12);border-radius:14px;overflow:hidden}
+.loc svg{display:block;width:100%;height:auto}
+.loc-info{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;font-size:13px}
+.loc-info strong{display:block;color:#fff;font-size:14px}
+.loc-info span{color:#B9C6DA}
+.live{display:inline-flex;align-items:center;gap:6px;color:#fff;font-weight:600;font-size:12px;white-space:nowrap}
+.live i{width:8px;height:8px;border-radius:50%;background:#4ADE80;box-shadow:0 0 0 0 rgba(74,222,128,.6);animation:pulse 1.8s infinite}
+@keyframes pulse{70%{box-shadow:0 0 0 8px rgba(74,222,128,0)}100%{box-shadow:0 0 0 0 rgba(74,222,128,0)}}
+@media (prefers-reduced-motion:reduce){.live i{animation:none}}
+
+.screen{flex:1;padding:16px 16px 100px;display:flex;flex-direction:column;gap:18px}
+.cats{display:flex;gap:8px;overflow-x:auto}
+.cats button{border:1px solid var(--line);background:var(--surface);padding:7px 14px;border-radius:99px;font-weight:600;font-size:13px;white-space:nowrap}
+.cats button[aria-pressed="true"]{background:var(--fg);color:var(--surface);border-color:var(--fg)}
+.paused-note{background:var(--warn-bg);color:var(--warn);border-radius:12px;padding:10px 12px;font-size:13px;font-weight:600}
+.menu{display:flex;flex-direction:column;gap:2px}
+.item{display:grid;grid-template-columns:52px minmax(0,1fr) auto;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid var(--line)}
+.item:last-child{border-bottom:0}
+.thumb{width:52px;height:52px;border-radius:14px;display:grid;place-items:center;font-family:var(--f-display);font-weight:800;font-size:17px;color:#fff}
+.item h3{margin:0;font-size:15px;font-weight:700}
+.item p{margin:2px 0 0;font-size:13px;color:var(--muted)}
+.item .price{font-weight:700;margin-top:4px;font-size:14px}
+.add{width:36px;height:36px;border-radius:50%;border:0;background:var(--red);color:#fff;font-size:22px;line-height:1;display:grid;place-items:center}
+.add:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
+.item{grid-template-columns:52px minmax(0,1fr)!important}
+.item .row{grid-column:1/-1;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px}
+.opts{display:flex;flex-wrap:wrap;gap:6px}
+.opts button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 9px;font-size:12px;text-align:left;line-height:1.2}
+.opts button b{display:block;font-size:13px}
+.opts button[aria-pressed="true"]{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.solo{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--muted)}
+.solo input{accent-color:var(--red);width:16px;height:16px}
+.addbtn{border:0;background:var(--red);color:#fff;border-radius:12px;padding:9px 14px;font-weight:700;white-space:nowrap}
+.addbtn:disabled{background:var(--line);color:var(--muted);cursor:not-allowed}
+.thumb{background:var(--truck)!important;border:3px solid var(--gold)}
+.qty{display:flex;align-items:center;gap:8px}
+.qty button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line);background:var(--surface-2);font-weight:700}
+
+.cartbar{position:absolute;left:12px;right:12px;bottom:12px;background:var(--red);color:#fff;border:0;border-radius:16px;padding:14px 16px;display:flex;justify-content:space-between;align-items:center;font-weight:700;box-shadow:0 10px 24px -10px rgba(214,40,40,.7)}
+.cartbar .count{background:rgba(255,255,255,.22);border-radius:8px;padding:2px 8px;margin-right:8px}
+
+.sheet h2,.status h2{font-family:var(--f-display);font-weight:800;font-size:22px;margin:0;letter-spacing:-.01em}
+.back{border:0;background:none;color:var(--muted);font-weight:600;padding:0;align-self:flex-start}
+.lines{display:flex;flex-direction:column;gap:10px}
+.line{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.line .nm{min-width:0}
+.line .nm b{display:block;font-size:14px}
+.line .nm small{color:var(--muted)}
+.field{display:flex;flex-direction:column;gap:6px}
+.field label{font-size:13px;font-weight:600;color:var(--muted)}
+.field input{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:11px 12px;font:inherit;color:var(--fg)}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.choices button{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:10px;text-align:left;font-size:13px}
+.choices button b{display:block;font-size:14px}
+.choices button[aria-pressed="true"]{border-color:var(--red);box-shadow:inset 0 0 0 1px var(--red)}
+.totals{border-top:1px dashed var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px;font-size:14px}
+.totals div{display:flex;justify-content:space-between}
+.totals .grand{font-weight:800;font-size:17px}
+.saving{background:var(--ok-bg);color:var(--ok);border-radius:12px;padding:10px 12px;font-size:13px;font-weight:600}
+.pay{border:0;background:var(--red);color:#fff;border-radius:14px;padding:15px;font-weight:700;font-size:16px}
+.pay:disabled{opacity:.5;cursor:not-allowed}
+.err{color:var(--red-ink);font-size:13px;font-weight:600;margin:-8px 0 0}
+
+.status{align-items:stretch}
+.ticket{background:var(--surface-2);border-radius:18px;padding:18px;text-align:center}
+.ticket .num{font-family:var(--f-mono);font-size:40px;color:var(--red);letter-spacing:.02em}
+.ticket p{margin:4px 0 0;color:var(--muted);font-size:14px}
+.steps{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:0}
+.steps li{display:grid;grid-template-columns:28px 1fr;gap:12px;padding-bottom:18px;position:relative}
+.steps li:not(:last-child)::after{content:"";position:absolute;left:13px;top:28px;bottom:2px;width:2px;background:var(--line)}
+.steps li.done:not(:last-child)::after{background:var(--ok)}
+.dot{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;font-size:13px;font-weight:800;color:var(--muted)}
+.steps li.done .dot{background:var(--ok);border-color:var(--ok);color:#fff}
+.steps li.now .dot{border-color:var(--red);color:var(--red)}
+.steps b{display:block}
+.steps small{color:var(--muted)}
+.notice{background:var(--navy);color:#fff;border-radius:14px;padding:12px 14px;font-size:14px;display:flex;gap:10px;align-items:flex-start}
+.notice b{color:#fff}
+.points{display:flex;justify-content:space-between;align-items:center;border:1px solid var(--line);border-radius:14px;padding:12px 14px;font-size:14px}
+.points strong{font-family:var(--f-display);font-size:20px;color:var(--red)}
+.ghost{border:1px solid var(--line);background:var(--surface);border-radius:14px;padding:13px;font-weight:600}
+
+/* Kitchen */
+.kitchen{background:var(--surface);border:1px solid var(--line);border-radius:22px;padding:18px;display:flex;flex-direction:column;gap:16px;min-width:0}
+.k-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:12px}
+.k-head h2{margin:0;font-family:var(--f-display);font-weight:800;font-size:22px}
+.k-head p{margin:2px 0 0;color:var(--muted);font-size:13px}
+.switch{display:flex;align-items:center;gap:10px;border:1px solid var(--line);border-radius:12px;padding:8px 12px;background:var(--surface-2);font-weight:600;font-size:14px}
+.switch input{width:40px;height:22px;accent-color:var(--red)}
+.k-stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.k-stats div{background:var(--surface-2);border-radius:14px;padding:12px}
+.k-stats small{display:block;color:var(--muted);font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.06em}
+.k-stats b{font-family:var(--f-display);font-size:24px}
+.board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.col{background:var(--surface-2);border-radius:16px;padding:10px;display:flex;flex-direction:column;gap:10px;min-width:0;min-height:160px}
+.col h3{margin:2px 4px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);display:flex;justify-content:space-between}
+.order{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:8px;border-left:4px solid var(--line)}
+.order.new{border-left-color:var(--red)}
+.order.prep{border-left-color:var(--warn)}
+.order.ready{border-left-color:var(--ok)}
+.order.mine{box-shadow:0 0 0 2px var(--red) inset}
+.o-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.o-top b{font-family:var(--f-mono);font-size:16px}
+.o-top small{color:var(--muted);font-size:12px}
+.order ul{margin:0;padding-left:18px;font-size:14px}
+.o-who{font-size:13px;color:var(--muted)}
+.o-btn{border:0;border-radius:10px;padding:9px;font-weight:700;color:#fff;background:var(--navy)}
+:root[data-theme="dark"] .o-btn{background:#2A4A7C}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
+.empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
+.hint{font-size:13px;color:var(--muted);margin:0}
+
+@media (max-width:960px){
+  .tabs{display:flex}
+  .stage{grid-template-columns:minmax(0,1fr)}
+  .stage[data-view="cliente"] .k-wrap{display:none}
+  .stage[data-view="cocina"] .c-wrap{display:none}
+  .c-wrap{max-width:440px;width:100%;margin:0 auto}
+  .panel-label{display:none}
+}
+@media (max-width:640px){
+  .board{grid-template-columns:minmax(0,1fr)}
+  .k-stats b{font-size:20px}
+}
+</style>
+
+<header class="top">
+  <div class="brand"><b>On<span>Route</span></b><small>by InnovationTECH</small></div>
+  <span class="demo-tag" id="modeTag">Conectando…</span>
+</header>
+
+<div class="tabs" role="tablist">
+  <button role="tab" id="tab-c" aria-selected="true" data-view="cliente">App del cliente</button>
+  <button role="tab" id="tab-k" aria-selected="false" data-view="cocina">Tableta de cocina</button>
+</div>
+
+<main class="stage" id="stage" data-view="cliente">
+  <section class="c-wrap" aria-label="App del cliente">
+    <p class="panel-label">Lo que ve el cliente en su celular</p>
+    <div class="phone">
+      <div class="hero">
+        <div class="hero-row">
+          <span style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#B9C6DA;font-weight:600">Pedidos para llevar</span>
+          <span class="open-pill" id="openPill">Abierto</span>
+        </div>
+        <div class="truck-name">Tortas Tortuga</div>
+        <p>Con un aguacate entero en cada torta · San Antonio, TX</p>
+        <div class="loc">
+          <svg viewBox="0 0 360 120" role="img" aria-label="Mapa con la ubicación del food truck en The Block">
+            <rect width="360" height="120" fill="var(--map-land)"/>
+            <rect x="228" y="12" width="110" height="46" rx="8" fill="var(--map-park)"/>
+            <path d="M0 78 H360" stroke="var(--map-road)" stroke-width="12"/>
+            <path d="M140 0 V120" stroke="var(--map-road)" stroke-width="10"/>
+            <path d="M0 26 C80 30 120 52 190 40 S300 20 360 34" stroke="var(--map-road)" stroke-width="6" fill="none"/>
+            <text x="8" y="100" font-size="10" fill="var(--muted)" font-family="Figtree, sans-serif">Roadrunner Way</text>
+            <text x="148" y="114" font-size="10" fill="var(--muted)" font-family="Figtree, sans-serif">UTSA Blvd</text>
+            <circle cx="210" cy="70" r="22" fill="#D62828" opacity=".18"/>
+            <path d="M210 44 c-10 0 -17 7 -17 16 c0 12 17 28 17 28 s17 -16 17 -28 c0 -9 -7 -16 -17 -16z" fill="#D62828"/>
+            <rect x="202" y="53" width="16" height="10" rx="2" fill="#fff"/>
+          </svg>
+          <div class="loc-info">
+            <div><strong>Hoy en The Block</strong><span>Lun a sáb · 10 am – 6 pm · 210-TORTA-10</span></div>
+            <span class="live"><i></i>GPS en vivo</span>
+          </div>
+        </div>
+      </div>
+      <div class="screen" id="screen"></div>
+      <button class="cartbar" id="cartbar" hidden></button>
+    </div>
+  </section>
+
+  <section class="k-wrap" aria-label="Tableta de cocina">
+    <p class="panel-label">Lo que ve el food truck en la tableta</p>
+    <div class="kitchen">
+      <div class="k-head">
+        <div><h2>Cocina · Tortas Tortuga</h2><p>Los pedidos de la app entran aquí solos.</p></div>
+        <label class="switch" for="pauseToggle"><input type="checkbox" id="pauseToggle"> Pausar pedidos en línea</label>
+      </div>
+      <div class="k-stats">
+        <div><small>Pedidos hoy</small><b class="mono" id="sOrders">0</b></div>
+        <div><small>Ventas hoy</small><b class="mono" id="sSales">$0</b></div>
+        <div><small>Comisión ahorrada</small><b class="mono" id="sSaved" style="color:var(--ok)">$0</b></div>
+      </div>
+      <div class="board" id="board"></div>
+      <p class="hint" id="kHint">Abre esta misma página en otro aparato: en uno la app del cliente y en el otro la cocina. Los pedidos pasan de uno a otro al instante.</p>
+    </div>
+  </section>
+</main>
+
+<script>
+// Menú real de Tortas Tortuga. Combo = torta + Coca-Cola + Lay's. Solo torta = $1 menos. Precios con impuesto incluido.
+const MENU=[
+  {id:"orig",n:1,cat:"Tortas",name:"Original Torta Tortuga",desc:"1 aguacate entero, 3 carnes (jamón, queso de puerco y pavo), tomate, cebolla, mayo y queso fresco",
+   opts:[["A","Triple carne","9 rebanadas",17],["B","Doble carne","6 rebanadas",16],["C","Sencilla","3 rebanadas",14]]},
+  {id:"turkey",n:2,cat:"Tortas",name:"Turkey Tortuga",desc:"1 aguacate entero, jamón de pavo, tomate, cebolla, mayo y queso fresco",
+   opts:[["A","Triple carne","9 rebanadas",17],["B","Doble carne","6 rebanadas",16],["C","Sencilla","3 rebanadas",14]]},
+  {id:"pork",n:3,cat:"Tortas",name:"Pork Tortuga",desc:"1 aguacate entero, queso de puerco, tomate, cebolla, mayo y queso fresco",
+   opts:[["A","Triple carne","12 rebanadas",17],["B","Doble carne","8 rebanadas",16],["C","Sencilla","4 rebanadas",14]]},
+  {id:"shrimp",n:4,cat:"Tortas",name:"Shrimp Tortuga",desc:"1 aguacate entero, 3 carnes con camarón (pavo, jamón y queso de puerco), mayo y queso",
+   opts:[["A","Sencilla","3 reb. + 5 camarones",16],["B","Doble camarón","3 reb. + 10 camarones",19]]},
+  {id:"allmeat",n:5,cat:"Tortas",name:"All Meat Tortuga",desc:"3 carnes: pavo, jamón y queso de puerco, con mayo y queso",
+   opts:[["A","Triple carne","12 rebanadas",17],["B","Doble carne","9 rebanadas",16],["C","Sencilla","6 rebanadas",14]]},
+  {id:"vegan",n:6,cat:"Vegana y niños",name:"Vegan Tortuga",desc:"1½ aguacate, mayo, tomate y cebolla",
+   opts:[["A","Sencilla","Combo",13]]},
+  {id:"kids",n:7,cat:"Vegana y niños",name:"Kids Tortuga",desc:"Jamón y mayo",
+   opts:[["A","Sencilla","3 rebanadas",8],["B","Doble","6 rebanadas",10],["C","Triple","9 rebanadas",12]]},
+];
+const COMMISSION=0.25;
+const state={view:"menu",cat:"Tortas",cart:{},pick:{},solo:{},pickup:"asap",name:"",paused:false,myOrder:null,
+  orders:[],live:false,ready:false,points:0,busy:false,payErr:""};
+let db=null;
+const $=s=>document.querySelector(s);
+const money=n=>"$"+Number(n).toFixed(2);
+function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
+function parse(key){const [id,opt,solo]=key.split("|");const m=MENU.find(x=>x.id===id);const o=m.opts.find(x=>x[0]===opt);
+  return {m,o,solo:solo==="1",price:o[3]-(solo==="1"?1:0),label:`#${m.n} ${m.name.replace(" Tortuga","").replace(" Torta","")} · ${o[0]} ${solo==="1"?"solo torta":"combo"}`}}
+const cartCount=()=>Object.values(state.cart).reduce((a,b)=>a+b,0);
+const subtotal=()=>Object.entries(state.cart).reduce((a,[k,q])=>a+parse(k).price*q,0);
+function ago(t){const m=Math.max(0,Math.round((Date.now()-t)/60000));return m<1?"ahora":`hace ${m} min`}
+const todayStart=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
+try{state.myOrder=sessionStorage.getItem("onroute-my")||null}catch(e){}
+if(state.myOrder)state.view="status";
+
+function renderClient(){
+  const sc=$("#screen"), bar=$("#cartbar");
+  $("#openPill").textContent=state.paused?"Pausado":"Abierto";
+  $("#openPill").classList.toggle("closed",state.paused);
+  if(state.view==="menu"){
+    const items=MENU.filter(m=>m.cat===state.cat);
+    sc.innerHTML=`
+      <div class="cats">${["Tortas","Vegana y niños"].map(c=>`<button aria-pressed="${c===state.cat}" data-cat="${c}">${c}</button>`).join("")}</div>
+      ${state.paused?`<div class="paused-note">La cocina está muy llena. Los pedidos en línea vuelven en unos minutos.</div>`:""}
+      <p class="hint" style="font-size:13px">Combo incluye Coca-Cola y Lay's. Precios con impuesto incluido.</p>
+      <div class="menu">${items.map(m=>{const sel=state.pick[m.id]||m.opts[0][0];const o=m.opts.find(x=>x[0]===sel);const solo=!!state.solo[m.id];return `
+        <div class="item">
+          <div class="thumb">${m.n}</div>
+          <div><h3>${m.name}</h3><p>${m.desc}</p></div>
+          <div class="row">
+            <div class="opts">${m.opts.length>1?m.opts.map(x=>`<button data-opt="${m.id}|${x[0]}" aria-pressed="${x[0]===sel}"><b>${x[0]} · $${x[3]}</b>${x[2]}</button>`).join(""):`<span class="price mono">$${o[3]} combo</span>`}</div>
+          </div>
+          <div class="row">
+            <label class="solo"><input type="checkbox" id="solo-${m.id}" data-solo="${m.id}" ${solo?"checked":""}> Solo torta (−$1)</label>
+            <button class="addbtn" data-add="${m.id}" ${state.paused?"disabled":""}>Agregar · <span class="mono">${money(o[3]-(solo?1:0))}</span></button>
+          </div>
+        </div>`}).join("")}</div>`;
+    const n=cartCount();
+    bar.hidden=!n;
+    bar.innerHTML=`<span><span class="count mono">${n}</span>Ver pedido</span><span class="mono">${money(subtotal())}</span>`;
+  } else if(state.view==="cart"){
+    bar.hidden=true;
+    const tot=subtotal();
+    sc.innerHTML=`
+      <button class="back" data-go="menu">← Seguir pidiendo</button>
+      <div class="sheet" style="display:flex;flex-direction:column;gap:16px">
+        <h2>Tu pedido</h2>
+        <div class="lines">${Object.entries(state.cart).map(([k,q])=>{const p=parse(k);return `
+          <div class="line"><div class="nm"><b>${p.m.name}</b><small>${p.o[0]} · ${p.o[1]} · ${p.solo?"solo torta":"combo"} · <span class="mono">${money(p.price)}</span></small></div>
+          <div class="qty"><button data-dec="${k}" aria-label="Quitar uno">−</button><b class="mono">${q}</b><button data-inc="${k}" aria-label="Agregar uno">+</button></div></div>`}).join("")}</div>
+        <div class="field"><label>¿Cuándo pasas por él?</label>
+          <div class="choices">
+            <button data-pick="asap" aria-pressed="${state.pickup==="asap"}"><b>Lo antes posible</b>Listo en ~15 min</button>
+            <button data-pick="30" aria-pressed="${state.pickup==="30"}"><b>En 30 minutos</b>Llego más tarde</button>
+          </div></div>
+        <div class="field"><label for="nameInput">Nombre para el pedido</label>
+          <input id="nameInput" placeholder="Ej. Ana" value="${esc(state.name)}" autocomplete="given-name"></div>
+        <div class="totals"><div class="grand"><span>Total (impuesto incluido)</span><span class="mono">${money(tot)}</span></div></div>
+        <div class="saving">Pidiendo aquí y no en una app de delivery, Tortas Tortuga se queda con ${money(tot*COMMISSION)} más.</div>
+        <p class="err" id="err" ${state.payErr?"":"hidden"}>${esc(state.payErr||"Escribe tu nombre para que te llamen al estar listo.")}</p>
+        <button class="pay" id="payBtn" ${state.paused||state.busy?"disabled":""}>${state.busy?"Enviando…":"Pagar "+money(tot)}</button>
+        <p class="hint" style="font-size:12px;text-align:center">Pago de prueba: no se cobra nada.</p>
+      </div>`;
+  } else {
+    bar.hidden=true;
+    const o=state.orders.find(x=>x.id===state.myOrder);
+    if(!o&&!state.ready){sc.innerHTML=`<p class="hint">Cargando tu pedido…</p>`;return}
+    const st=o?o.status:"done";
+    const idx={new:0,prep:1,ready:2,done:3}[st];
+    const steps=[["Pedido recibido","La cocina ya lo tiene en su pantalla"],["En preparación","Tu torta se está armando"],["Listo para recoger","Pasa a la ventanilla con tu número"]];
+    sc.innerHTML=`
+      <div class="status" style="display:flex;flex-direction:column;gap:16px">
+        <h2>${st==="ready"?"¡Tu pedido está listo!":st==="done"?"¡Buen provecho!":"Gracias, "+esc(o?o.who:state.name)}</h2>
+        <div class="ticket"><div class="num">#${o?esc(o.num):"—"}</div><p>${o&&o.pickup==="30"?"Pasas en 30 min":"Listo en unos 15 min"} · Tortas Tortuga</p></div>
+        <ol class="steps">${steps.map((s,i)=>`<li class="${i<idx||(i===idx&&i===2)||st==="done"?"done":i===idx?"now":""}">
+          <span class="dot">${i<idx||(i===2&&idx>=2)?"✓":i+1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`).join("")}</ol>
+        ${st==="ready"?`<div class="notice"><span><b>Aviso por SMS (en la versión final):</b> "Tortas Tortuga: tu pedido #${o?esc(o.num):""} está listo. Pasa a la ventanilla."</span></div>`:""}
+        ${o?`<div class="points"><span>Puntos ganados con esta compra</span><strong class="mono">+${Math.floor(o.total)}</strong></div>`:""}
+        <button class="ghost" data-go="new">Hacer otro pedido</button>
+      </div>`;
+  }
+}
+
+function renderKitchen(){
+  const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
+  const act={new:"Empezar",prep:"Marcar listo",ready:"Entregado"};
+  const active=state.orders.filter(o=>o.status!=="done");
+  $("#board").innerHTML=cols.map(([k,l])=>{const list=active.filter(o=>o.status===k);return `
+    <div class="col"><h3><span>${l}</span><span class="mono">${list.length}</span></h3>
+    ${list.length?list.map(o=>`<div class="order ${k} ${o.id===state.myOrder?"mine":""}">
+      <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
+      <ul>${(o.items||[]).map(([n,q])=>`<li>${Number(q)} × ${esc(n)}</li>`).join("")}</ul>
+      <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup==="30"?" · llega en 30 min":""}</div>
+      <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
+    :`<div class="empty">${k==="new"&&!state.orders.length?(state.ready?"Aún no hay pedidos. Haz uno desde la app del cliente.":"Cargando…"):"Sin pedidos"}</div>`}</div>`}).join("");
+  const today=state.orders.filter(o=>o.createdAt>=todayStart());
+  const sales=today.reduce((a,o)=>a+Number(o.total||0),0);
+  $("#sOrders").textContent=today.length;
+  $("#sSales").textContent="$"+Math.round(sales);
+  $("#sSaved").textContent="$"+Math.round(sales*COMMISSION);
+  $("#pauseToggle").checked=state.paused;
+}
+function render(){renderClient();renderKitchen()}
+
+function setMode(){
+  const t=$("#modeTag");
+  if(state.live){t.textContent="En vivo · pago de prueba";t.style.color="var(--ok)";t.style.background="var(--ok-bg)"}
+  else{t.textContent="Modo local · sin conexión";$("#kHint").textContent="Sin conexión a la base de datos: los pedidos solo se ven en esta pantalla."}
+}
+
+async function placeOrder(){
+  const nm=($("#nameInput").value||"").trim();
+  if(!nm){state.payErr="Escribe tu nombre para que te llamen al estar listo.";render();$("#nameInput").focus();return}
+  state.name=nm;state.payErr="";
+  const order={num:"T"+String(Math.floor(100+Math.random()*900)),who:nm.slice(0,40),
+    items:Object.entries(state.cart).map(([k,q])=>[parse(k).label,q]),total:subtotal(),
+    status:"new",pickup:state.pickup,createdAt:Date.now()};
+  if(state.live){
+    state.busy=true;render();
+    try{const ref=db.collection("orders").doc();await ref.set(order);state.myOrder=ref.id}
+    catch(e){state.busy=false;state.payErr=e&&e.code==="quota_exceeded"?"La base de datos está llena. Borra pedidos viejos e intenta de nuevo.":"No se pudo enviar el pedido. Revisa tu conexión e intenta otra vez.";render();return}
+    state.busy=false;
+  } else {
+    const id="local-"+Date.now();state.orders.unshift({...order,id});state.myOrder=id;
+  }
+  try{sessionStorage.setItem("onroute-my",state.myOrder)}catch(e){}
+  state.cart={};state.view="status";render();
+}
+
+async function advance(id){
+  const o=state.orders.find(x=>x.id===id);if(!o)return;
+  const next={new:"prep",prep:"ready",ready:"done"}[o.status];
+  if(state.live){try{await db.collection("orders").doc(id).update({status:next})}catch(e){}}
+  else{o.status=next;render()}
+}
+
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.dataset.cat){state.cat=t.dataset.cat}
+  else if(t.dataset.opt){const [id,o]=t.dataset.opt.split("|");state.pick[id]=o}
+  else if(t.dataset.add){const m=MENU.find(x=>x.id===t.dataset.add);const k=`${m.id}|${state.pick[m.id]||m.opts[0][0]}|${state.solo[m.id]?1:0}`;state.cart[k]=(state.cart[k]||0)+1}
+  else if(t.dataset.inc){state.cart[t.dataset.inc]++}
+  else if(t.dataset.dec){const k=t.dataset.dec;state.cart[k]--;if(!state.cart[k])delete state.cart[k];if(!cartCount())state.view="menu"}
+  else if(t.id==="cartbar"){state.view="cart"}
+  else if(t.dataset.go==="menu"){state.view="menu"}
+  else if(t.dataset.go==="new"){state.view="menu";state.cart={};state.myOrder=null;try{sessionStorage.removeItem("onroute-my")}catch(e){}}
+  else if(t.dataset.pick){state.pickup=t.dataset.pick}
+  else if(t.id==="payBtn"){placeOrder();return}
+  else if(t.dataset.adv){advance(t.dataset.adv);return}
+  else if(t.dataset.view){setView(t.dataset.view);try{history.replaceState(null,"","#"+t.dataset.view)}catch(e){}return}
+  else return;
+  render();
+});
+function setView(v){
+  $("#stage").dataset.view=v;
+  document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.view===v));
+}
+document.addEventListener("change",e=>{if(e.target.dataset.solo){state.solo[e.target.dataset.solo]=e.target.checked;render()}});
+document.addEventListener("input",e=>{if(e.target.id==="nameInput"){state.name=e.target.value}});
+$("#pauseToggle").addEventListener("change",async e=>{
+  state.paused=e.target.checked;render();
+  if(state.live){try{await db.doc("settings/truck").set({paused:state.paused})}catch(err){}}
+});
+function fromHash(){const h=location.hash.slice(1);if(h==="cocina"||h==="cliente")setView(h)}
+window.addEventListener("hashchange",fromHash);fromHash();
+render();
+
+(async()=>{
+  try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+  if(!db){state.ready=true;setMode();render();return}
+  state.live=true;setMode();
+  db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
+    state.orders=snap.docs.map(d=>({...d.data(),id:d.id}));state.ready=true;render();
+  },()=>{state.live=false;state.ready=true;setMode();render()});
+  db.doc("settings/truck").onSnapshot(s=>{state.paused=!!(s.exists&&s.data().paused);render()},()=>{});
+})();
+setInterval(()=>{if(state.orders.length)renderKitchen()},60000);
+</script>
+
+</body>
+</html>
