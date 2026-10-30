@@ -173,6 +173,31 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.ktabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
+.ktabs button{border:0;background:none;padding:10px 4px;margin-right:14px;font-weight:700;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
+.ktabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--red)}
+.hist{display:flex;flex-direction:column;gap:12px}
+.h-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between}
+.seg{display:flex;gap:4px;background:var(--surface-2);padding:4px;border-radius:12px}
+.seg button{border:0;background:none;border-radius:9px;padding:7px 12px;font-weight:600;font-size:13px;color:var(--muted)}
+.seg button[aria-pressed="true"]{background:var(--surface);color:var(--fg);box-shadow:0 1px 3px rgba(11,31,58,.15)}
+#hSearch{flex:1;min-width:180px;border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:9px 12px;font:inherit;color:var(--fg)}
+.h-sum{display:flex;flex-wrap:wrap;gap:18px;font-size:14px;color:var(--muted)}
+.h-sum b{color:var(--fg);font-family:var(--f-display);font-size:20px;margin-right:4px}
+.h-list{display:flex;flex-direction:column}
+.h-row{display:grid;grid-template-columns:78px minmax(0,1fr) auto;gap:12px;align-items:start;padding:11px 2px;border-bottom:1px solid var(--line);font-size:14px}
+.h-row:last-child{border-bottom:0}
+.h-row time{color:var(--muted);font-size:13px}
+.h-row .who b{display:block}
+.h-row .who span{color:var(--muted);font-size:13px}
+.h-row .amt{font-weight:700}
+.last{border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:10px;background:var(--surface-2)}
+.last-top{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.last-top b{font-family:var(--f-display);font-size:16px}
+.last-top small{color:var(--muted);font-size:12px}
+.last ul{margin:0;padding-left:18px;font-size:14px}
+.last button{border:0;border-radius:12px;padding:11px;font-weight:700;background:var(--navy);color:#fff}
+@media (max-width:520px){.h-row{grid-template-columns:62px minmax(0,1fr) auto;gap:8px}}
 #map{height:150px;width:100%;background:var(--map-land)}
 .truck-pin{position:relative;width:34px;height:34px}
 .truck-pin b{position:absolute;left:5px;top:0;width:24px;height:24px;border-radius:50% 50% 50% 0;background:#D62828;border:3px solid #fff;transform:rotate(-45deg);box-shadow:0 3px 8px rgba(0,0,0,.35)}
@@ -292,7 +317,23 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
         <div><small>Ventas hoy</small><b class="mono" id="sSales">$0</b></div>
         <div><small>Comisión ahorrada</small><b class="mono" id="sSaved" style="color:var(--ok)">$0</b></div>
       </div>
+      <div class="ktabs" id="kTabs" role="tablist">
+        <button role="tab" data-ktab="board" aria-selected="true">Pedidos activos</button>
+        <button role="tab" data-ktab="hist" aria-selected="false">Historial</button>
+      </div>
       <div class="board" id="board"></div>
+      <div class="hist" id="hist" hidden>
+        <div class="h-controls">
+          <div class="seg" id="hRange">
+            <button data-range="today" aria-pressed="true">Hoy</button>
+            <button data-range="yesterday" aria-pressed="false">Ayer</button>
+            <button data-range="week" aria-pressed="false">7 días</button>
+          </div>
+          <input id="hSearch" type="search" placeholder="Buscar por nombre del cliente" autocomplete="off">
+        </div>
+        <div class="h-sum" id="hSum"></div>
+        <div class="h-list" id="hList"></div>
+      </div>
       <p class="hint" id="kHint">Abre esta misma página en otro aparato: en uno la app del cliente y en el otro la cocina. Los pedidos pasan de uno a otro al instante.</p>
     </div>
   </section>
@@ -1008,6 +1049,7 @@ function renderClient(){
   if(state.view==="menu"){
     const items=MENU.filter(m=>m.cat===state.cat);
     sc.innerHTML=`
+      ${lastCard()}
       <div class="cats">${["Tortas","Vegana y niños"].map(c=>`<button aria-pressed="${c===state.cat}" data-cat="${c}">${c}</button>`).join("")}</div>
       ${state.paused?`<div class="paused-note">La cocina está muy llena. Los pedidos en línea vuelven en unos minutos.</div>`:""}
       <p class="hint" style="font-size:13px">Combo incluye Coca-Cola y Lay's. Precios con impuesto incluido.</p>
@@ -1106,7 +1148,7 @@ function renderAuth(){
 function renderKitchen(){
   const gated=!!state.fb&&!state.isOwner;
   $("#kAuth").hidden=!state.fb;
-  $("#kStats").hidden=gated;$("#kLoc").hidden=!state.fb||gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
+  $("#kStats").hidden=gated;$("#kTabs").hidden=gated;if(gated)$("#hist").hidden=true;$("#kLoc").hidden=!state.fb||gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
   if(state.fb)renderAuth();
   if(gated)return;
   const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
@@ -1127,7 +1169,56 @@ function renderKitchen(){
   $("#sSaved").textContent="$"+Math.round(sales*COMMISSION);
   $("#pauseToggle").checked=state.paused;
 }
-function render(){renderClient();renderKitchen()}
+// ---- Último pedido (cliente) ----
+function getLast(){
+  try{const d=JSON.parse(localStorage.getItem("onroute-last")||"null");if(!d||!d.cart)return null;
+    const cart={};for(const [k,q] of Object.entries(d.cart)){try{parse(k);if(q>0)cart[k]=Math.min(20,Math.floor(q))}catch(e){}}
+    return Object.keys(cart).length?{...d,cart}:null}catch(e){return null}
+}
+function daysAgo(t){const d=Math.floor((todayStart()-new Date(t).setHours(0,0,0,0))/86400000);return d<=0?"hoy":d===1?"ayer":`hace ${d} días`}
+function lastCard(){
+  const L0=getLast();if(!L0||state.paused)return "";
+  const tot=Object.entries(L0.cart).reduce((a,[k,q])=>a+parse(k).price*q,0);
+  return `<div class="last">
+    <div class="last-top"><b>Tu último pedido</b><small>${daysAgo(L0.at)}</small></div>
+    <ul>${Object.entries(L0.cart).map(([k,q])=>`<li>${q} × ${esc(parse(k).label)}</li>`).join("")}</ul>
+    <button data-repeat="1">Pedir lo mismo · <span class="mono">${money(tot)}</span></button>
+  </div>`;
+}
+// ---- Historial (dueño) ----
+state.ktab="board";state.hRange="today";state.hq="";
+function histRange(){
+  const t0=todayStart(),day=86400000;
+  return state.hRange==="yesterday"?[t0-day,t0]:state.hRange==="week"?[t0-6*day,t0+day]:[t0,t0+day];
+}
+function itemsText(o){return (o.items||[]).map(it=>{const n=Array.isArray(it)?it[0]:it.name,q=Array.isArray(it)?it[1]:it.qty;return `${Number(q)} × ${n}`}).join(", ")}
+function renderHist(){
+  const hist=$("#hist");if(hist.hidden)return;
+  const [a,b]=histRange(),q=state.hq.trim().toLowerCase();
+  const list=state.orders.filter(o=>o.status==="done"&&o.createdAt>=a&&o.createdAt<b&&(!q||String(o.who||"").toLowerCase().includes(q)));
+  const total=list.reduce((s,o)=>s+Number(o.total||0),0);
+  $("#hSum").innerHTML=`<span><b class="mono">${list.length}</b>pedidos entregados</span><span><b class="mono">${money(total)}</b>vendido</span><span><b class="mono">${money(list.length?total/list.length:0)}</b>ticket promedio</span>`;
+  const fmtT=t=>new Date(t).toLocaleTimeString("es-US",{hour:"numeric",minute:"2-digit"});
+  const fmtD=t=>new Date(t).toLocaleDateString("es-US",{weekday:"short",day:"numeric"});
+  $("#hList").innerHTML=list.length?list.map(o=>`<div class="h-row">
+      <time class="mono">${state.hRange==="week"?fmtD(o.createdAt)+"<br>":""}${fmtT(o.createdAt)}</time>
+      <div class="who"><b>${esc(o.who)} · #${esc(o.num)}</b><span>${esc(itemsText(o))}</span></div>
+      <span class="amt mono">${money(o.total)}</span></div>`).join("")
+    :`<div class="empty">${q?"Ningún pedido entregado con ese nombre en este periodo.":"Todavía no hay pedidos entregados en este periodo."}</div>`;
+}
+function setKtab(t){
+  state.ktab=t;
+  document.querySelectorAll("#kTabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.ktab===t));
+  $("#board").hidden=t!=="board";$("#hist").hidden=t!=="hist";renderHist();
+}
+document.addEventListener("click",e=>{
+  const t=e.target.closest("button");if(!t)return;
+  if(t.dataset.ktab)setKtab(t.dataset.ktab);
+  else if(t.dataset.range){state.hRange=t.dataset.range;document.querySelectorAll("#hRange button").forEach(b=>b.setAttribute("aria-pressed",b===t));renderHist()}
+  else if(t.dataset.repeat){const L0=getLast();if(!L0)return;state.cart={...L0.cart};if(L0.name&&!state.name)state.name=L0.name;state.view="cart";render()}
+});
+$("#hSearch").addEventListener("input",e=>{state.hq=e.target.value;renderHist()});
+function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){$("#board").hidden=state.ktab!=="board";$("#hist").hidden=state.ktab!=="hist";renderHist()}}
 
 function setMode(){
   const t=$("#modeTag");
@@ -1151,6 +1242,7 @@ async function placeOrder(){
     const id="local-"+Date.now();state.orders.unshift({...order,id});state.myOrder=id;
   }
   try{sessionStorage.setItem("onroute-my",state.myOrder)}catch(e){}
+  try{localStorage.setItem("onroute-last",JSON.stringify({cart:state.cart,name:state.name,at:Date.now()}))}catch(e){}
   state.cart={};state.view="status";render();
 }
 
@@ -1206,7 +1298,7 @@ function watchMine(id){
 }
 function subscribeKitchen(){
   if(unsubKitchen)return;
-  unsubKitchen=db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
+  unsubKitchen=db.collection("orders").orderBy("createdAt","desc").limit(600).onSnapshot(snap=>{
     state.orders=snap.docs.map(d=>({...d.data(),id:d.id}));state.ready=true;render();
   },()=>{state.ready=true;render()});
 }
@@ -1320,7 +1412,7 @@ setInterval(renderLoc,60000);
   try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
   if(!db){state.ready=true;setMode();render();return}
   state.live=true;setMode();
-  db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
+  db.collection("orders").orderBy("createdAt","desc").limit(600).onSnapshot(snap=>{
     state.orders=snap.docs.map(d=>({...d.data(),id:d.id}));state.ready=true;render();
   },()=>{state.live=false;state.ready=true;setMode();render()});
   db.doc("settings/truck").onSnapshot(s=>{state.paused=!!(s.exists&&s.data().paused);render()},()=>{});
