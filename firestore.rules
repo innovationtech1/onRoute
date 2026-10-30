@@ -1,22 +1,44 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Pedidos: cualquiera puede verlos y crear uno nuevo;
-    // la cocina solo puede cambiar el estado. Nadie puede borrarlos desde la app.
+
+    function isOwner() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/meta/owner)
+        && get(/databases/$(database)/documents/meta/owner).data.uid == request.auth.uid;
+    }
+
+    // Dueño de la cocina: la primera cuenta que lo reclama. No se puede cambiar desde la app.
+    match /meta/owner {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Pedidos: el cliente crea el suyo y puede seguirlo por su número;
+    // solo el dueño ve la lista completa y cambia el estado.
     match /orders/{id} {
-      allow read: if true;
+      allow get: if true;
+      allow list: if isOwner();
       allow create: if request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt'])
         && request.resource.data.status == 'new'
         && request.resource.data.who is string && request.resource.data.who.size() <= 40
+        && request.resource.data.items is list && request.resource.data.items.size() <= 30
         && request.resource.data.total is number && request.resource.data.total < 1000;
-      allow update: if request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+      allow update: if isOwner()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
         && request.resource.data.status in ['new','prep','ready','done'];
-      allow delete: if false;
+      allow delete: if isOwner();
     }
-    // Botón de pausar pedidos en línea.
+
+    // Botón de pausar pedidos en línea: todos lo leen, solo el dueño lo cambia.
     match /settings/truck {
       allow read: if true;
-      allow write: if request.resource.data.keys().hasOnly(['paused']) && request.resource.data.paused is bool;
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['paused'])
+        && request.resource.data.paused is bool;
     }
   }
 }

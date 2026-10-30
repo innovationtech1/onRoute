@@ -173,6 +173,20 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.auth{background:var(--surface-2);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:12px;max-width:420px}
+.auth h3{margin:0;font-family:var(--f-display);font-size:18px}
+.auth p{margin:0;font-size:14px;color:var(--muted)}
+.auth input{border:1px solid var(--line);background:var(--surface);border-radius:12px;padding:11px 12px;font:inherit;color:var(--fg)}
+.auth .btns{display:flex;flex-wrap:wrap;gap:8px}
+.auth .btns button,.auth>button{border:0;border-radius:12px;padding:11px 14px;font-weight:700}
+.auth .primary{background:var(--red);color:#fff}
+.auth .secondary{background:var(--surface);border:1px solid var(--line)!important}
+.auth .google{background:var(--surface);border:1px solid var(--line)!important;display:flex;align-items:center;justify-content:center;gap:8px}
+.auth .or{display:flex;align-items:center;gap:10px;color:var(--muted);font-size:12px}
+.auth .or::before,.auth .or::after{content:"";flex:1;height:1px;background:var(--line)}
+.auth .msg{color:var(--red-ink);font-weight:600;font-size:13px}
+.session{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.session button{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:6px 10px;font-weight:600}
 
 @media (max-width:960px){
   .tabs{display:flex}
@@ -238,9 +252,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
     <div class="kitchen">
       <div class="k-head">
         <div><h2>Cocina · Tortas Tortuga</h2><p>Los pedidos de la app entran aquí solos.</p></div>
-        <label class="switch" for="pauseToggle"><input type="checkbox" id="pauseToggle"> Pausar pedidos en línea</label>
+        <label class="switch" for="pauseToggle" id="pauseWrap"><input type="checkbox" id="pauseToggle"> Pausar pedidos en línea</label>
       </div>
-      <div class="k-stats">
+      <div id="kAuth" hidden></div>
+      <div class="k-stats" id="kStats">
         <div><small>Pedidos hoy</small><b class="mono" id="sOrders">0</b></div>
         <div><small>Ventas hoy</small><b class="mono" id="sSales">$0</b></div>
         <div><small>Comisión ahorrada</small><b class="mono" id="sSaved" style="color:var(--ok)">$0</b></div>
@@ -252,6 +267,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script>
@@ -338,8 +354,8 @@ function renderClient(){
       </div>`;
   } else {
     bar.hidden=true;
-    const o=state.orders.find(x=>x.id===state.myOrder);
-    if(!o&&!state.ready){sc.innerHTML=`<p class="hint">Cargando tu pedido…</p>`;return}
+    const o=(state.mineDoc&&state.mineDoc.id===state.myOrder)?state.mineDoc:state.orders.find(x=>x.id===state.myOrder);
+    if(!o&&!(state.fb?state.mineLoaded:state.ready)){sc.innerHTML=`<p class="hint">Cargando tu pedido…</p>`;return}
     const st=o?o.status:"done";
     const idx={new:0,prep:1,ready:2,done:3}[st];
     const steps=[["Pedido recibido","La cocina ya lo tiene en su pantalla"],["En preparación","Tu torta se está armando"],["Listo para recoger","Pasa a la ventanilla con tu número"]];
@@ -356,7 +372,43 @@ function renderClient(){
   }
 }
 
+let authKey="";
+function renderAuth(){
+  const box=$("#kAuth");
+  const u=state.user;
+  let key,html;
+  if(!state.authReady){key="wait";html=`<p class="hint">Cargando…</p>`}
+  else if(!u){key="out|"+state.authMsg;html=`<div class="auth">
+      <h3>Entrar a la cocina</h3>
+      <p>Solo el dueño del food truck ve y mueve los pedidos.</p>
+      <input id="authEmail" type="email" placeholder="Correo" autocomplete="email">
+      <input id="authPass" type="password" placeholder="Contraseña (mínimo 6 caracteres)" autocomplete="current-password">
+      ${state.authMsg?`<span class="msg">${esc(state.authMsg)}</span>`:""}
+      <div class="btns"><button class="primary" data-auth="login">Entrar</button><button class="secondary" data-auth="signup">Crear cuenta</button></div>
+      <div class="or">o</div>
+      <button class="google" data-auth="google"><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.4 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg>Continuar con Google</button>
+    </div>`}
+  else if(!state.ownerLoaded){key="chk";html=`<p class="hint">Revisando acceso…</p>`}
+  else if(!state.ownerUid){key="claim|"+state.authMsg;html=`<div class="auth">
+      <h3>Esta cocina no tiene dueño todavía</h3>
+      <p>Entraste como ${esc(u.email||"")}. Si eres el dueño de Tortas Tortuga, reclama la cocina. Solo se puede hacer una vez.</p>
+      ${state.authMsg?`<span class="msg">${esc(state.authMsg)}</span>`:""}
+      <div class="btns"><button class="primary" data-auth="claim">Soy el dueño</button><button class="secondary" data-auth="logout">Cerrar sesión</button></div>
+    </div>`}
+  else if(!state.isOwner){key="no";html=`<div class="auth">
+      <h3>Sin acceso a esta cocina</h3>
+      <p>La cuenta ${esc(u.email||"")} no es la del dueño.</p>
+      <div class="btns"><button class="secondary" data-auth="logout">Cerrar sesión</button></div>
+    </div>`}
+  else{key="own|"+u.email;html=`<div class="session"><span>Sesión: ${esc(u.email||"")}</span><button data-auth="logout">Cerrar sesión</button></div>`}
+  if(key!==authKey){box.innerHTML=html;authKey=key}
+}
 function renderKitchen(){
+  const gated=!!state.fb&&!state.isOwner;
+  $("#kAuth").hidden=!state.fb;
+  $("#kStats").hidden=gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
+  if(state.fb)renderAuth();
+  if(gated)return;
   const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
   const act={new:"Empezar",prep:"Marcar listo",ready:"Entregado"};
   const active=state.orders.filter(o=>o.status!=="done");
@@ -392,7 +444,7 @@ async function placeOrder(){
     status:"new",pickup:state.pickup,createdAt:Date.now()};
   if(state.live){
     state.busy=true;render();
-    try{const ref=db.collection("orders").doc();await ref.set(order);state.myOrder=ref.id}
+    try{const ref=db.collection("orders").doc();await ref.set(order);state.myOrder=ref.id;if(state.fb)watchMine(ref.id)}
     catch(e){state.busy=false;state.payErr=e&&e.code==="quota_exceeded"?"La base de datos está llena. Borra pedidos viejos e intenta de nuevo.":"No se pudo enviar el pedido. Revisa tu conexión e intenta otra vez.";render();return}
     state.busy=false;
   } else {
@@ -422,6 +474,7 @@ document.addEventListener("click",e=>{
   else if(t.dataset.pick){state.pickup=t.dataset.pick}
   else if(t.id==="payBtn"){placeOrder();return}
   else if(t.dataset.adv){advance(t.dataset.adv);return}
+  else if(t.dataset.auth){authAction(t.dataset.auth);return}
   else if(t.dataset.view){setView(t.dataset.view);try{history.replaceState(null,"","#"+t.dataset.view)}catch(e){}return}
   else return;
   render();
@@ -434,19 +487,65 @@ document.addEventListener("change",e=>{if(e.target.dataset.solo){state.solo[e.ta
 document.addEventListener("input",e=>{if(e.target.id==="nameInput"){state.name=e.target.value}});
 $("#pauseToggle").addEventListener("change",async e=>{
   state.paused=e.target.checked;render();
-  if(state.live){try{await db.doc("settings/truck").set({paused:state.paused})}catch(err){}}
+  if(state.live&&(!state.fb||state.isOwner)){try{await db.doc("settings/truck").set({paused:state.paused})}catch(err){}}
 });
 function fromHash(){const h=location.hash.slice(1);if(h==="cocina"||h==="cliente")setView(h)}
 window.addEventListener("hashchange",fromHash);fromHash();
 render();
 
+// ---- Firebase (GitHub Pages) ----
+let auth=null,unsubMine=null,unsubKitchen=null;
+const AUTH_ERR={"auth/invalid-credential":"Correo o contraseña incorrectos.","auth/wrong-password":"Correo o contraseña incorrectos.","auth/user-not-found":"No hay una cuenta con ese correo. Usa Crear cuenta.",
+  "auth/email-already-in-use":"Ya existe una cuenta con ese correo. Usa Entrar.","auth/weak-password":"La contraseña necesita al menos 6 caracteres.","auth/invalid-email":"Ese correo no es válido.",
+  "auth/missing-password":"Escribe la contraseña.","auth/popup-closed-by-user":"Cerraste la ventana de Google antes de terminar.","auth/popup-blocked":"El navegador bloqueó la ventana de Google. Permite ventanas emergentes e intenta otra vez.",
+  "auth/unauthorized-domain":"Este dominio no está autorizado en Firebase (Authentication > Configuración > Dominios autorizados).","auth/operation-not-allowed":"Ese método de inicio de sesión no está activado en Firebase.",
+  "auth/too-many-requests":"Demasiados intentos. Espera un momento."};
+function watchMine(id){
+  if(unsubMine)unsubMine();state.mineLoaded=false;
+  unsubMine=db.collection("orders").doc(id).onSnapshot(d=>{state.mineDoc=d.exists?{...d.data(),id:d.id}:null;state.mineLoaded=true;render()},()=>{state.mineLoaded=true;render()});
+}
+function subscribeKitchen(){
+  if(unsubKitchen)return;
+  unsubKitchen=db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
+    state.orders=snap.docs.map(d=>({...d.data(),id:d.id}));state.ready=true;render();
+  },()=>{state.ready=true;render()});
+}
+async function checkOwner(){
+  state.ownerLoaded=false;render();
+  try{const d=await db.doc("meta/owner").get();state.ownerUid=d.exists?d.data().uid:null}catch(e){state.ownerUid=null}
+  state.ownerLoaded=true;state.isOwner=!!state.user&&state.ownerUid===state.user.uid;
+  if(state.isOwner)subscribeKitchen();
+  render();
+}
+async function authAction(kind){
+  state.authMsg="";
+  const email=(($("#authEmail")||{}).value||"").trim(), pass=($("#authPass")||{}).value||"";
+  try{
+    if(kind==="login")await auth.signInWithEmailAndPassword(email,pass);
+    else if(kind==="signup")await auth.createUserWithEmailAndPassword(email,pass);
+    else if(kind==="google")await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
+    else if(kind==="logout")await auth.signOut();
+    else if(kind==="claim"){await db.doc("meta/owner").set({uid:state.user.uid});await checkOwner();}
+  }catch(e){state.authMsg=AUTH_ERR[e&&e.code]||(kind==="claim"?"Otra cuenta ya reclamó esta cocina.":"No se pudo completar. Intenta otra vez.");authKey="";render()}
+}
+
 (async()=>{
-  // En GitHub Pages usa Firebase (firebase-config.js); dentro de claude.ai usa su base de datos.
   if(window.FIREBASE_CONFIG&&window.firebase){
-    try{firebase.initializeApp(window.FIREBASE_CONFIG);db=firebase.firestore()}catch(e){db=null}
-  } else {
-    try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
+    try{firebase.initializeApp(window.FIREBASE_CONFIG);db=firebase.firestore();auth=firebase.auth()}catch(e){db=null}
+    if(db&&auth){
+      state.fb=true;state.live=true;state.ready=true;setMode();
+      $("#kHint").textContent="Los pedidos del celular del cliente llegan aquí al instante. Entra con la cuenta del dueño para verlos.";
+      db.doc("settings/truck").onSnapshot(s=>{state.paused=!!(s.exists&&s.data().paused);render()},()=>{});
+      if(state.myOrder)watchMine(state.myOrder);
+      auth.onAuthStateChanged(u=>{
+        state.user=u;state.authReady=true;state.isOwner=false;
+        if(unsubKitchen){unsubKitchen();unsubKitchen=null;state.orders=[]}
+        if(u)checkOwner();else{state.ownerLoaded=false;render()}
+      });
+      render();return;
+    }
   }
+  try{db=window.claude&&window.claude.use?await window.claude.use("db"):null}catch(e){db=null}
   if(!db){state.ready=true;setMode();render();return}
   state.live=true;setMode();
   db.collection("orders").orderBy("createdAt","desc").limit(200).onSnapshot(snap=>{
