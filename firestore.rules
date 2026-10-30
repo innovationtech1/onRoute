@@ -51,5 +51,14 @@ service cloud.firestore {
         && request.resource.data.hours is string && request.resource.data.hours.size() <= 60
         && request.resource.data.sharing is bool;
     }
+
+    // Menú: todos lo leen, solo el dueño lo cambia.
+    match /settings/menu {
+      allow read: if true;
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['items','updatedAt'])
+        && request.resource.data.items is list
+        && request.resource.data.items.size() <= 60;
+    }
   }
 }

@@ -173,6 +173,39 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.item.sold .thumb{opacity:.45}
+.sold-tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:2px 6px;vertical-align:middle}
+.menued{display:flex;flex-direction:column;gap:12px}
+#meList{display:flex;flex-direction:column;gap:12px}
+.me-item{border:1px solid var(--line);border-radius:14px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.me-item.is-sold{background:var(--surface-2)}
+.me-head{display:grid;grid-template-columns:34px minmax(0,1fr) minmax(0,160px);gap:8px;align-items:center}
+.me-num{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;background:var(--truck);color:#fff;font-weight:800}
+.me-item input,.me-item textarea{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:8px 10px;font:inherit;color:var(--fg);min-width:0;width:100%}
+.me-item textarea{resize:vertical;min-height:44px;font-size:13px}
+.me-item input.bad{border-color:var(--red)}
+.me-opt{display:grid;grid-template-columns:26px minmax(0,1fr) minmax(0,1fr) 84px 32px;gap:6px;align-items:center}
+.me-opt .code{font-weight:800;text-align:center}
+.me-opt .price{position:relative}
+.me-opt .price input{padding-left:20px}
+.me-opt .price::before{content:"$";position:absolute;left:9px;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px}
+.me-x{border:1px solid var(--line);background:var(--surface);border-radius:8px;height:32px;font-weight:700;color:var(--muted)}
+.me-foot{display:flex;flex-wrap:wrap;gap:8px;justify-content:space-between;align-items:center}
+.me-foot .l{display:flex;gap:8px;flex-wrap:wrap}
+.me-chip{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:7px 10px;font-weight:600;font-size:13px}
+.me-chip.on{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.me-del{border:0;background:none;color:var(--red-ink);font-weight:600;font-size:13px}
+.me-add{border:1px dashed var(--line);background:none;border-radius:14px;padding:12px;font-weight:700;color:var(--fg)}
+.me-bar{position:sticky;bottom:0;display:flex;flex-wrap:wrap;gap:10px;justify-content:space-between;align-items:center;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px;box-shadow:0 -6px 16px -12px rgba(11,31,58,.4)}
+.me-bar span{font-size:13px;font-weight:600;color:var(--muted)}
+.me-bar span.dirty{color:var(--warn)}
+.me-bar span.err{color:var(--red-ink)}
+.me-bar span.ok{color:var(--ok)}
+.me-bar div{display:flex;gap:8px}
+.me-sec{border:1px solid var(--line);background:var(--surface);border-radius:10px;padding:9px 12px;font-weight:600}
+.me-save{border:0;background:var(--red);color:#fff;border-radius:10px;padding:9px 14px;font-weight:700}
+.me-save:disabled,.me-sec:disabled{opacity:.45;cursor:not-allowed}
+@media (max-width:560px){.me-head{grid-template-columns:34px minmax(0,1fr)}.me-head .catin{grid-column:1/-1}.me-opt{grid-template-columns:22px minmax(0,1fr) 80px 32px}.me-opt .det{grid-column:2/4}}
 .ktabs{display:flex;gap:6px;border-bottom:1px solid var(--line)}
 .ktabs button{border:0;background:none;padding:10px 4px;margin-right:14px;font-weight:700;color:var(--muted);border-bottom:3px solid transparent;margin-bottom:-1px}
 .ktabs button[aria-selected="true"]{color:var(--fg);border-bottom-color:var(--red)}
@@ -320,8 +353,19 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
       <div class="ktabs" id="kTabs" role="tablist">
         <button role="tab" data-ktab="board" aria-selected="true">Pedidos activos</button>
         <button role="tab" data-ktab="hist" aria-selected="false">Historial</button>
+        <button role="tab" data-ktab="menu" aria-selected="false">Menú</button>
       </div>
       <div class="board" id="board"></div>
+      <div class="menued" id="menuEd" hidden>
+        <p class="hint">Cambia precios, marca platillos como agotados o agrega nuevos. Los clientes ven los cambios al tocar Guardar.</p>
+        <div id="meList"></div>
+        <button class="me-add" data-me="additem">+ Agregar platillo</button>
+        <div class="me-bar" id="meBar">
+          <span id="meState">Sin cambios</span>
+          <div><button class="me-sec" data-me="discard">Descartar</button><button class="me-save" data-me="save">Guardar cambios</button></div>
+        </div>
+        <datalist id="catList"></datalist>
+      </div>
       <div class="hist" id="hist" hidden>
         <div class="h-controls">
           <div class="seg" id="hRange">
@@ -1010,7 +1054,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script src="firebase-config.js"></script>
 <script>
 // Menú real de Tortas Tortuga. Combo = torta + Coca-Cola + Lay's. Solo torta = $1 menos. Precios con impuesto incluido.
-const MENU=[
+let MENU=[
   {id:"orig",n:1,cat:"Tortas",name:"Original Torta Tortuga",desc:"1 aguacate entero, 3 carnes (jamón, queso de puerco y pavo), tomate, cebolla, mayo y queso fresco",
    opts:[["A","Triple carne","9 rebanadas",17],["B","Doble carne","6 rebanadas",16],["C","Sencilla","3 rebanadas",14]]},
   {id:"turkey",n:2,cat:"Tortas",name:"Turkey Tortuga",desc:"1 aguacate entero, jamón de pavo, tomate, cebolla, mayo y queso fresco",
@@ -1033,7 +1077,7 @@ let db=null;
 const $=s=>document.querySelector(s);
 const money=n=>"$"+Number(n).toFixed(2);
 function esc(s){return String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]))}
-function parse(key){const [id,opt,solo]=key.split("|");const m=MENU.find(x=>x.id===id);const o=m.opts.find(x=>x[0]===opt);
+function parse(key){const [id,opt,solo]=key.split("|");const m=MENU.find(x=>x.id===id);if(!m)throw new Error("gone");const o=m.opts.find(x=>x[0]===opt);if(!o)throw new Error("gone");
   return {m,o,solo:solo==="1",price:o[3]-(solo==="1"?1:0),label:`#${m.n} ${m.name.replace(" Tortuga","").replace(" Torta","")} · ${o[0]} ${solo==="1"?"solo torta":"combo"}`}}
 const cartCount=()=>Object.values(state.cart).reduce((a,b)=>a+b,0);
 const subtotal=()=>Object.entries(state.cart).reduce((a,[k,q])=>a+parse(k).price*q,0);
@@ -1047,22 +1091,23 @@ function renderClient(){
   $("#openPill").textContent=state.paused?"Pausado":"Abierto";
   $("#openPill").classList.toggle("closed",state.paused);
   if(state.view==="menu"){
+    if(!menuCats().includes(state.cat))state.cat=menuCats()[0]||"";
     const items=MENU.filter(m=>m.cat===state.cat);
     sc.innerHTML=`
       ${lastCard()}
-      <div class="cats">${["Tortas","Vegana y niños"].map(c=>`<button aria-pressed="${c===state.cat}" data-cat="${c}">${c}</button>`).join("")}</div>
+      <div class="cats">${menuCats().map(c=>`<button aria-pressed="${c===state.cat}" data-cat="${c}">${c}</button>`).join("")}</div>
       ${state.paused?`<div class="paused-note">La cocina está muy llena. Los pedidos en línea vuelven en unos minutos.</div>`:""}
       <p class="hint" style="font-size:13px">Combo incluye Coca-Cola y Lay's. Precios con impuesto incluido.</p>
       <div class="menu">${items.map(m=>{const sel=state.pick[m.id]||m.opts[0][0];const o=m.opts.find(x=>x[0]===sel);const solo=!!state.solo[m.id];return `
-        <div class="item">
+        <div class="item ${m.soldOut?"sold":""}">
           <div class="thumb">${m.n}</div>
-          <div><h3>${m.name}</h3><p>${m.desc}</p></div>
+          <div><h3>${esc(m.name)}${m.soldOut?' <span class="sold-tag">Agotado</span>':""}</h3><p>${esc(m.desc)}</p></div>
           <div class="row">
-            <div class="opts">${m.opts.length>1?m.opts.map(x=>`<button data-opt="${m.id}|${x[0]}" aria-pressed="${x[0]===sel}"><b>${x[0]} · $${x[3]}</b>${x[2]}</button>`).join(""):`<span class="price mono">$${o[3]} combo</span>`}</div>
+            <div class="opts">${m.opts.length>1?m.opts.map(x=>`<button data-opt="${m.id}|${x[0]}" aria-pressed="${x[0]===sel}"><b>${x[0]} · $${x[3]}</b>${esc(x[2])}</button>`).join(""):`<span class="price mono">$${o[3]} combo</span>`}</div>
           </div>
           <div class="row">
             <label class="solo"><input type="checkbox" id="solo-${m.id}" data-solo="${m.id}" ${solo?"checked":""}> Solo torta (−$1)</label>
-            <button class="addbtn" data-add="${m.id}" ${state.paused?"disabled":""}>Agregar · <span class="mono">${money(o[3]-(solo?1:0))}</span></button>
+            <button class="addbtn" data-add="${m.id}" ${state.paused||m.soldOut?"disabled":""}>${m.soldOut?"Agotado":`Agregar · <span class="mono">${money(o[3]-(solo?1:0))}</span>`}</button>
           </div>
         </div>`}).join("")}</div>`;
     const n=cartCount();
@@ -1185,6 +1230,80 @@ function lastCard(){
     <button data-repeat="1">Pedir lo mismo · <span class="mono">${money(tot)}</span></button>
   </div>`;
 }
+// ---- Menú editable (dueño) ----
+const DEFAULT_MENU=JSON.parse(JSON.stringify(MENU));
+let meDraft=null,meDirty=false,meSaving=false;
+function cloneMenu(m){return JSON.parse(JSON.stringify(m))}
+function menuCats(){const c=[];MENU.forEach(m=>{if(m.cat&&!c.includes(m.cat))c.push(m.cat)});return c}
+function menuFromDb(items){
+  return (items||[]).filter(x=>x&&x.id&&Array.isArray(x.opts)&&x.opts.length).map((x,i)=>({id:String(x.id),n:Number(x.n)||i+1,cat:String(x.cat||"Tortas"),name:String(x.name||""),desc:String(x.desc||""),soldOut:!!x.soldOut,
+    opts:x.opts.map((o,j)=>[String.fromCharCode(65+j),String(o.label||""),String(o.detail||""),Number(o.price)||0])}));
+}
+function menuToDb(m){return m.map((x,i)=>({id:x.id,n:i+1,cat:x.cat.trim(),name:x.name.trim(),desc:x.desc.trim(),soldOut:!!x.soldOut,
+  opts:x.opts.map(o=>({label:String(o[1]).trim(),detail:String(o[2]).trim(),price:Math.round(Number(o[3])*100)/100}))}))}
+function applyMenu(m){
+  MENU=m;
+  for(const k of Object.keys(state.cart)){try{parse(k)}catch(e){delete state.cart[k]}}
+  if(!cartCount()&&state.view==="cart")state.view="menu";
+  if(!meDirty&&state.ktab==="menu"){meDraft=cloneMenu(MENU);renderMenuEd()}
+}
+function meStatus(msg,cls){const e=$("#meState");e.textContent=msg;e.className=cls||"";
+  $("[data-me=save]").disabled=!meDirty||meSaving;$("[data-me=discard]").disabled=!meDirty||meSaving}
+function renderMenuEd(){
+  if(!meDraft)meDraft=cloneMenu(MENU);
+  $("#catList").innerHTML=[...new Set(meDraft.map(m=>m.cat).concat(["Tortas","Bebidas","Vegana y niños"]))].map(c=>`<option value="${esc(c)}"></option>`).join("");
+  $("#meList").innerHTML=meDraft.map((m,i)=>`<div class="me-item ${m.soldOut?"is-sold":""}" data-i="${i}">
+    <div class="me-head"><span class="me-num">${i+1}</span>
+      <input id="me-name-${i}" data-f="name" value="${esc(m.name)}" maxlength="60" placeholder="Nombre del platillo" aria-label="Nombre">
+      <input id="me-cat-${i}" class="catin" data-f="cat" value="${esc(m.cat)}" list="catList" maxlength="30" placeholder="Categoría" aria-label="Categoría"></div>
+    <textarea id="me-desc-${i}" data-f="desc" maxlength="200" placeholder="Descripción" aria-label="Descripción">${esc(m.desc)}</textarea>
+    ${m.opts.map((o,j)=>`<div class="me-opt">
+      <span class="code">${String.fromCharCode(65+j)}</span>
+      <input id="me-ol-${i}-${j}" data-j="${j}" data-of="1" value="${esc(o[1])}" maxlength="30" placeholder="Opción (ej. Triple carne)" aria-label="Opción">
+      <input id="me-od-${i}-${j}" class="det" data-j="${j}" data-of="2" value="${esc(o[2])}" maxlength="40" placeholder="Detalle (ej. 9 rebanadas)" aria-label="Detalle">
+      <span class="price"><input id="me-op-${i}-${j}" data-j="${j}" data-of="3" type="number" inputmode="decimal" min="0" max="500" step="0.5" value="${o[3]}" aria-label="Precio"></span>
+      <button class="me-x" data-me="delopt" data-j="${j}" aria-label="Quitar opción" ${m.opts.length<2?"disabled":""}>✕</button></div>`).join("")}
+    <div class="me-foot"><div class="l">
+      <button class="me-chip" data-me="addopt" ${m.opts.length>=5?"disabled":""}>+ Opción</button>
+      <button class="me-chip ${m.soldOut?"on":""}" data-me="sold">${m.soldOut?"Agotado · tocar para reactivar":"Marcar agotado"}</button></div>
+      <button class="me-del" data-me="delitem">Eliminar platillo</button></div>
+  </div>`).join("");
+  meStatus(meDirty?"Cambios sin guardar":"Sin cambios",meDirty?"dirty":"");
+}
+function meTouch(){meDirty=true;meStatus("Cambios sin guardar","dirty")}
+$("#menuEd").addEventListener("input",e=>{
+  const box=e.target.closest(".me-item");if(!box)return;const m=meDraft[+box.dataset.i];
+  if(e.target.dataset.f)m[e.target.dataset.f]=e.target.value;
+  else if(e.target.dataset.of){const j=+e.target.dataset.j,f=+e.target.dataset.of;m.opts[j][f]=f===3?e.target.value:e.target.value}
+  e.target.classList.remove("bad");meTouch();
+});
+$("#menuEd").addEventListener("click",async e=>{
+  const b=e.target.closest("[data-me]");if(!b)return;
+  const box=b.closest(".me-item"),i=box?+box.dataset.i:-1,act=b.dataset.me;
+  if(act==="additem"){meDraft.push({id:"p"+Date.now().toString(36),n:meDraft.length+1,cat:menuCats()[0]||"Tortas",name:"",desc:"",soldOut:false,opts:[["A","Sencilla","",10]]});meTouch();renderMenuEd();
+    const ins=document.querySelectorAll("#meList .me-item");const last=ins[ins.length-1];last.scrollIntoView({block:"center"});last.querySelector("input").focus();return}
+  if(act==="addopt"){meDraft[i].opts.push([String.fromCharCode(65+meDraft[i].opts.length),"","",meDraft[i].opts[meDraft[i].opts.length-1][3]]);meTouch();renderMenuEd();return}
+  if(act==="delopt"){meDraft[i].opts.splice(+b.dataset.j,1);meDraft[i].opts.forEach((o,j)=>o[0]=String.fromCharCode(65+j));meTouch();renderMenuEd();return}
+  if(act==="sold"){meDraft[i].soldOut=!meDraft[i].soldOut;meTouch();renderMenuEd();return}
+  if(act==="delitem"){
+    if(b.dataset.armed!=="1"){b.dataset.armed="1";b.textContent="Toca otra vez para eliminar";setTimeout(()=>{if(b.isConnected){b.dataset.armed="";b.textContent="Eliminar platillo"}},4000);return}
+    meDraft.splice(i,1);meTouch();renderMenuEd();return}
+  if(act==="discard"){meDraft=cloneMenu(MENU);meDirty=false;renderMenuEd();return}
+  if(act==="save"){
+    let bad=null;
+    meDraft.forEach((m,ii)=>{if(!m.name.trim()){bad=bad||`#me-name-${ii}`}
+      m.opts.forEach((o,j)=>{const p=Number(o[3]);if(!(p>0&&p<500))bad=bad||`#me-op-${ii}-${j}`;if(!String(o[1]).trim())bad=bad||`#me-ol-${ii}-${j}`})});
+    if(!meDraft.length){meStatus("El menú necesita al menos un platillo.","err");return}
+    if(bad){const el=$(bad);el.classList.add("bad");el.scrollIntoView({block:"center"});el.focus();meStatus("Revisa el campo marcado en rojo: falta el nombre o el precio no es válido.","err");return}
+    meDraft.forEach(m=>{if(!m.cat.trim())m.cat="Tortas"});
+    const out=menuToDb(meDraft);
+    meSaving=true;meStatus("Guardando…");
+    if(state.fb){
+      try{await db.doc("settings/menu").set({items:out,updatedAt:Date.now()});meDirty=false;meSaving=false;applyMenu(menuFromDb(out));render();meStatus("Guardado. Los clientes ya ven el menú nuevo.","ok")}
+      catch(err){console.error("OnRoute: error al guardar menú",err);meSaving=false;meStatus("No se pudo guardar. Revisa que las reglas nuevas de Firestore estén publicadas.","err")}
+    } else {meDirty=false;meSaving=false;applyMenu(menuFromDb(out));render();meStatus("Guardado en esta pantalla (modo local).","ok")}
+  }
+});
 // ---- Historial (dueño) ----
 state.ktab="board";state.hRange="today";state.hq="";
 function histRange(){
@@ -1209,7 +1328,7 @@ function renderHist(){
 function setKtab(t){
   state.ktab=t;
   document.querySelectorAll("#kTabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.ktab===t));
-  $("#board").hidden=t!=="board";$("#hist").hidden=t!=="hist";renderHist();
+  $("#board").hidden=t!=="board";$("#hist").hidden=t!=="hist";$("#menuEd").hidden=t!=="menu";renderHist();if(t==="menu"){if(!meDirty)meDraft=cloneMenu(MENU);renderMenuEd()}
 }
 document.addEventListener("click",e=>{
   const t=e.target.closest("button");if(!t)return;
@@ -1218,7 +1337,7 @@ document.addEventListener("click",e=>{
   else if(t.dataset.repeat){const L0=getLast();if(!L0)return;state.cart={...L0.cart};if(L0.name&&!state.name)state.name=L0.name;state.view="cart";render()}
 });
 $("#hSearch").addEventListener("input",e=>{state.hq=e.target.value;renderHist()});
-function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){$("#board").hidden=state.ktab!=="board";$("#hist").hidden=state.ktab!=="hist";renderHist()}}
+function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){$("#board").hidden=state.ktab!=="board";$("#hist").hidden=state.ktab!=="hist";$("#menuEd").hidden=state.ktab!=="menu";renderHist()}else{$("#menuEd").hidden=true}}
 
 function setMode(){
   const t=$("#modeTag");
@@ -1393,6 +1512,10 @@ setInterval(renderLoc,60000);
       state.fb=true;state.live=true;state.ready=true;setMode();
       $("#kHint").textContent="Los pedidos del celular del cliente llegan aquí al instante. Entra con la cuenta del dueño para verlos.";
       db.doc("settings/truck").onSnapshot(s=>{state.paused=!!(s.exists&&s.data().paused);render()},()=>{});
+      db.doc("settings/menu").onSnapshot(s=>{
+        const m=s.exists?menuFromDb(s.data().items):null;
+        applyMenu(m&&m.length?m:cloneMenu(DEFAULT_MENU));render();
+      },()=>{});
       db.doc("settings/location").onSnapshot(s=>{
         if(s.exists){const d=s.data();state.loc={lat:d.lat,lng:d.lng,acc:d.acc,updatedAt:d.updatedAt,stop:d.stop||"",hours:d.hours||"",sharing:!!d.sharing};
           const st=$("#gpsStop"),hr=$("#gpsHours");if(document.activeElement!==st&&!st.value)st.value=state.loc.stop;if(document.activeElement!==hr&&!hr.value)hr.value=state.loc.hours;}
