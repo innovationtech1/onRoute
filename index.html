@@ -416,7 +416,7 @@ function renderKitchen(){
     <div class="col"><h3><span>${l}</span><span class="mono">${list.length}</span></h3>
     ${list.length?list.map(o=>`<div class="order ${k} ${o.id===state.myOrder?"mine":""}">
       <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
-      <ul>${(o.items||[]).map(([n,q])=>`<li>${Number(q)} × ${esc(n)}</li>`).join("")}</ul>
+      <ul>${(o.items||[]).map(it=>{const n=Array.isArray(it)?it[0]:it.name,q=Array.isArray(it)?it[1]:it.qty;return `<li>${Number(q)} × ${esc(n)}</li>`}).join("")}</ul>
       <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup==="30"?" · llega en 30 min":""}</div>
       <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
     :`<div class="empty">${k==="new"&&!state.orders.length?(state.ready?"Aún no hay pedidos. Haz uno desde la app del cliente.":"Cargando…"):"Sin pedidos"}</div>`}</div>`}).join("");
@@ -440,12 +440,12 @@ async function placeOrder(){
   if(!nm){state.payErr="Escribe tu nombre para que te llamen al estar listo.";render();$("#nameInput").focus();return}
   state.name=nm;state.payErr="";
   const order={num:"T"+String(Math.floor(100+Math.random()*900)),who:nm.slice(0,40),
-    items:Object.entries(state.cart).map(([k,q])=>[parse(k).label,q]),total:subtotal(),
+    items:Object.entries(state.cart).map(([k,q])=>({name:parse(k).label,qty:q})),total:subtotal(),
     status:"new",pickup:state.pickup,createdAt:Date.now()};
   if(state.live){
     state.busy=true;render();
     try{const ref=db.collection("orders").doc();await ref.set(order);state.myOrder=ref.id;if(state.fb)watchMine(ref.id)}
-    catch(e){state.busy=false;state.payErr=e&&e.code==="quota_exceeded"?"La base de datos está llena. Borra pedidos viejos e intenta de nuevo.":"No se pudo enviar el pedido. Revisa tu conexión e intenta otra vez.";render();return}
+    catch(e){console.error("OnRoute: error al crear pedido",e);state.busy=false;state.payErr=e&&e.code==="quota_exceeded"?"La base de datos está llena. Borra pedidos viejos e intenta de nuevo.":"No se pudo enviar el pedido. Revisa tu conexión e intenta otra vez.";render();return}
     state.busy=false;
   } else {
     const id="local-"+Date.now();state.orders.unshift({...order,id});state.myOrder=id;
