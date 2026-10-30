@@ -40,5 +40,16 @@ service cloud.firestore {
         && request.resource.data.keys().hasOnly(['paused'])
         && request.resource.data.paused is bool;
     }
+
+    // Ubicación GPS del camión: todos la ven, solo el dueño la cambia.
+    match /settings/location {
+      allow read: if true;
+      allow write: if isOwner()
+        && request.resource.data.keys().hasOnly(['lat','lng','acc','updatedAt','stop','hours','sharing'])
+        && request.resource.data.lat is number && request.resource.data.lng is number
+        && request.resource.data.stop is string && request.resource.data.stop.size() <= 60
+        && request.resource.data.hours is string && request.resource.data.hours.size() <= 60
+        && request.resource.data.sharing is bool;
+    }
   }
 }

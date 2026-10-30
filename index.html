@@ -173,6 +173,21 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+#map{height:150px;width:100%;background:var(--map-land)}
+.loc-side{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.go{color:#fff;font-weight:700;font-size:12px;text-decoration:none;background:var(--red);border-radius:8px;padding:5px 9px;white-space:nowrap}
+.gps{border:1px solid var(--line);border-radius:16px;padding:14px;display:flex;flex-direction:column;gap:12px}
+.gps-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px}
+.gps h3{margin:0;font-family:var(--f-display);font-size:17px}
+.gps p{margin:2px 0 0;font-size:13px;color:var(--muted)}
+.gps p.on{color:var(--ok);font-weight:600}
+.gps p.bad{color:var(--red-ink);font-weight:600}
+.gps-btn{border:0;border-radius:12px;padding:10px 14px;font-weight:700;background:var(--red);color:#fff}
+.gps-btn.stop{background:var(--surface-2);color:var(--fg);border:1px solid var(--line)}
+.gps-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.gps-fields label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.gps-fields input{border:1px solid var(--line);background:var(--surface-2);border-radius:10px;padding:9px 10px;font:inherit;color:var(--fg)}
+@media (max-width:520px){.gps-fields{grid-template-columns:minmax(0,1fr)}}
 .auth{background:var(--surface-2);border-radius:16px;padding:18px;display:flex;flex-direction:column;gap:12px;max-width:420px}
 .auth h3{margin:0;font-family:var(--f-display);font-size:18px}
 .auth p{margin:0;font-size:14px;color:var(--muted)}
@@ -224,7 +239,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
         <div class="truck-name">Tortas Tortuga</div>
         <p>Con un aguacate entero en cada torta · San Antonio, TX</p>
         <div class="loc">
-          <svg viewBox="0 0 360 120" role="img" aria-label="Mapa con la ubicación del food truck en The Block">
+          <div id="map" hidden aria-label="Mapa con la ubicación del food truck"></div>
+          <svg id="mapFallback" viewBox="0 0 360 120" role="img" aria-label="Mapa con la ubicación del food truck en The Block">
             <rect width="360" height="120" fill="var(--map-land)"/>
             <rect x="228" y="12" width="110" height="46" rx="8" fill="var(--map-park)"/>
             <path d="M0 78 H360" stroke="var(--map-road)" stroke-width="12"/>
@@ -237,8 +253,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
             <rect x="202" y="53" width="16" height="10" rx="2" fill="#fff"/>
           </svg>
           <div class="loc-info">
-            <div><strong>Hoy en The Block</strong><span>Lun a sáb · 10 am – 6 pm · 210-TORTA-10</span></div>
-            <span class="live"><i></i>GPS en vivo</span>
+            <div><strong id="locStop">Hoy en The Block</strong><span id="locSub">Lun a sáb · 10 am – 6 pm · 210-TORTA-10</span></div>
+            <div class="loc-side"><span class="live" id="locLive"><i></i>GPS en vivo</span><a class="go" id="locGo" hidden target="_blank" rel="noopener">Cómo llegar</a></div>
           </div>
         </div>
       </div>
@@ -255,6 +271,15 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
         <label class="switch" for="pauseToggle" id="pauseWrap"><input type="checkbox" id="pauseToggle"> Pausar pedidos en línea</label>
       </div>
       <div id="kAuth" hidden></div>
+      <div class="gps" id="kLoc" hidden>
+        <div class="gps-head"><div><h3>Ubicación del camión</h3><p id="gpsStatus">No estás compartiendo la ubicación.</p></div>
+          <button class="gps-btn" id="gpsBtn">Compartir ubicación</button></div>
+        <div class="gps-fields">
+          <label for="gpsStop">Parada de hoy<input id="gpsStop" maxlength="60" placeholder="Ej. The Block"></label>
+          <label for="gpsHours">Horario<input id="gpsHours" maxlength="60" placeholder="Ej. 10 am – 6 pm"></label>
+        </div>
+        <p class="hint">Deja esta página abierta en la tableta del camión. La ubicación se actualiza sola cada minuto y la pantalla no se apaga mientras compartes.</p>
+      </div>
       <div class="k-stats" id="kStats">
         <div><small>Pedidos hoy</small><b class="mono" id="sOrders">0</b></div>
         <div><small>Ventas hoy</small><b class="mono" id="sSales">$0</b></div>
@@ -266,6 +291,8 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
   </section>
 </main>
 
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -406,7 +433,7 @@ function renderAuth(){
 function renderKitchen(){
   const gated=!!state.fb&&!state.isOwner;
   $("#kAuth").hidden=!state.fb;
-  $("#kStats").hidden=gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
+  $("#kStats").hidden=gated;$("#kLoc").hidden=!state.fb||gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
   if(state.fb)renderAuth();
   if(gated)return;
   const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
@@ -529,6 +556,68 @@ async function authAction(kind){
   }catch(e){state.authMsg=AUTH_ERR[e&&e.code]||(kind==="claim"?"Otra cuenta ya reclamó esta cocina.":"No se pudo completar. Intenta otra vez.");authKey="";render()}
 }
 
+// ---- GPS ----
+let map=null,marker=null,watchId=null,lastSent=0,lastPos=null,lastPosObj=null,wakeLock=null,beat=null;
+state.loc=null;
+function metersBetween(a,b){const R=6371000,t=Math.PI/180,dLa=(b[0]-a[0])*t,dLo=(b[1]-a[1])*t;
+  const h=Math.sin(dLa/2)**2+Math.cos(a[0]*t)*Math.cos(b[0]*t)*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
+function renderLoc(){
+  if(!state.fb)return;
+  const L0=state.loc, has=!!L0&&typeof L0.lat==="number";
+  const fresh=has&&L0.sharing&&Date.now()-L0.updatedAt<5*60000;
+  $("#locStop").textContent=has?(L0.stop?`Hoy en ${L0.stop}`:"Ubicación del camión"):"Ubicación aún no disponible";
+  $("#locSub").textContent=has?`${L0.hours?L0.hours+" · ":""}${fresh?"actualizado "+ago(L0.updatedAt):"última vez "+ago(L0.updatedAt)}`:"El camión todavía no comparte su ubicación.";
+  $("#locLive").hidden=!fresh;
+  const go=$("#locGo");go.hidden=!has;
+  if(has)go.href=`https://www.google.com/maps/dir/?api=1&destination=${L0.lat},${L0.lng}`;
+  if(has&&window.L){
+    $("#mapFallback").hidden=true;$("#map").hidden=false;
+    const ll=[L0.lat,L0.lng];
+    if(!map){
+      map=window.L.map("map",{zoomControl:false,scrollWheelZoom:false}).setView(ll,15);
+      window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
+      marker=window.L.circleMarker(ll,{radius:10,color:"#fff",weight:3,fillColor:"#D62828",fillOpacity:1}).addTo(map);
+    } else {marker.setLatLng(ll);map.panTo(ll)}
+  }
+}
+function gpsUI(msg,cls){
+  const p=$("#gpsStatus");p.textContent=msg;p.className=cls||"";
+  const b=$("#gpsBtn");b.textContent=watchId!==null?"Dejar de compartir":"Compartir ubicación";b.classList.toggle("stop",watchId!==null);
+}
+async function sendLoc(pos,force){
+  const now=Date.now(),ll=[pos.coords.latitude,pos.coords.longitude];
+  const moved=!lastPos||metersBetween(lastPos,ll)>40;
+  if(!force&&(now-lastSent<15000||(!moved&&now-lastSent<60000)))return;
+  lastSent=now;lastPos=ll;
+  try{
+    await db.doc("settings/location").set({lat:ll[0],lng:ll[1],acc:Math.round(pos.coords.accuracy||0),updatedAt:now,
+      stop:($("#gpsStop").value||"").trim().slice(0,60),hours:($("#gpsHours").value||"").trim().slice(0,60),sharing:true});
+    gpsUI(`Compartiendo ubicación · precisión ±${Math.round(pos.coords.accuracy||0)} m · enviada ${new Date(now).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"})}`,"on");
+  }catch(e){console.error("OnRoute: error al guardar ubicación",e);gpsUI("No se pudo guardar la ubicación. Revisa que las reglas nuevas de Firestore estén publicadas.","bad")}
+}
+async function startGps(){
+  if(!navigator.geolocation){gpsUI("Este navegador no tiene GPS.","bad");return}
+  gpsUI("Buscando tu ubicación…");
+  let first=true;
+  watchId=navigator.geolocation.watchPosition(p=>{lastPosObj=p;sendLoc(p,first);first=false},err=>{
+    const m={1:"Diste que no al permiso de ubicación. Actívalo en la configuración del navegador para este sitio.",2:"No se pudo obtener la ubicación. Revisa que el GPS esté encendido.",3:"El GPS tardó demasiado. Sigue intentando…"}[err.code]||"No se pudo obtener la ubicación.";
+    if(err.code===1)stopGps(true);gpsUI(m,"bad");
+  },{enableHighAccuracy:true,maximumAge:30000,timeout:30000});
+  beat=setInterval(()=>{if(lastPosObj)sendLoc(lastPosObj,true)},120000);
+  try{if(navigator.wakeLock)wakeLock=await navigator.wakeLock.request("screen")}catch(e){}
+  gpsUI("Buscando tu ubicación…");
+}
+async function stopGps(silent){
+  if(watchId!==null)navigator.geolocation.clearWatch(watchId);
+  watchId=null;clearInterval(beat);beat=null;lastPosObj=null;
+  try{if(wakeLock){await wakeLock.release();wakeLock=null}}catch(e){}
+  if(!silent&&state.loc){try{await db.doc("settings/location").set({...state.loc,sharing:false,updatedAt:state.loc.updatedAt})}catch(e){}}
+  gpsUI("No estás compartiendo la ubicación.");
+}
+document.addEventListener("visibilitychange",async()=>{if(watchId!==null&&document.visibilityState==="visible"&&navigator.wakeLock){try{wakeLock=await navigator.wakeLock.request("screen")}catch(e){}}});
+$("#gpsBtn").addEventListener("click",()=>{watchId===null?startGps():stopGps()});
+setInterval(renderLoc,60000);
+
 (async()=>{
   if(window.FIREBASE_CONFIG&&window.firebase){
     try{firebase.initializeApp(window.FIREBASE_CONFIG);db=firebase.firestore();auth=firebase.auth()}catch(e){db=null}
@@ -536,6 +625,13 @@ async function authAction(kind){
       state.fb=true;state.live=true;state.ready=true;setMode();
       $("#kHint").textContent="Los pedidos del celular del cliente llegan aquí al instante. Entra con la cuenta del dueño para verlos.";
       db.doc("settings/truck").onSnapshot(s=>{state.paused=!!(s.exists&&s.data().paused);render()},()=>{});
+      db.doc("settings/location").onSnapshot(s=>{
+        if(s.exists){const d=s.data();state.loc={lat:d.lat,lng:d.lng,acc:d.acc,updatedAt:d.updatedAt,stop:d.stop||"",hours:d.hours||"",sharing:!!d.sharing};
+          const st=$("#gpsStop"),hr=$("#gpsHours");if(document.activeElement!==st&&!st.value)st.value=state.loc.stop;if(document.activeElement!==hr&&!hr.value)hr.value=state.loc.hours;}
+        else state.loc=null;
+        renderLoc();
+      },()=>{});
+      renderLoc();
       if(state.myOrder)watchMine(state.myOrder);
       auth.onAuthStateChanged(u=>{
         state.user=u;state.authReady=true;state.isOwner=false;
