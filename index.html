@@ -8,6 +8,10 @@
 <body>
 <title>OnRoute Demo</title>
 <meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="theme-color" content="#0B1A2E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap">
@@ -173,6 +177,72 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+/* Logo OnRoute */
+.logo{display:flex;align-items:center;gap:2px;color:var(--fg)}
+.logo-o{width:30px;height:30px;flex:none}
+.logo .wm{display:flex;flex-direction:column;line-height:1}
+.logo .wm b{font-family:var(--f-display);font-weight:800;font-size:26px;letter-spacing:-.02em}
+.logo .wm em{font-style:normal;color:#3DBE6B}
+.logo .wm small{font-size:10.5px;color:var(--muted);letter-spacing:.02em;margin-top:2px;padding-left:1px}
+.logo.sm .logo-o{width:24px;height:24px}
+.logo.sm .wm b{font-size:20px}
+.logo.sm .wm small{font-size:9px}
+/* Cocina: tema oscuro fijo, como la tableta del camión */
+.kitchen{--surface:#13243D;--surface-2:#0F1E33;--fg:#EAF0F8;--muted:#8FA1BB;--line:#22385A;
+  --ok:#3DBE6B;--ok-bg:#123623;--warn:#F2B451;--warn-bg:#3A2A0C;--red:#E04848;--red-ink:#FF7A7A;
+  --k-bg:#0B1A2E;--k-blue:#4A9BE8;--k-green:#3DBE6B;--k-red:#B83A3A;--k-purple:#6B4FC8;--k-gold:#A88128;
+  background:var(--k-bg)!important;color:var(--fg);border-color:#1C2F4D!important;color-scheme:dark;padding-bottom:0!important;gap:14px!important}
+.k-top{display:flex;justify-content:space-between;align-items:center}
+.k-gear{width:38px;height:38px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--fg);display:grid;place-items:center}
+.k-gear svg,.knav svg,.prow-i svg,.ti svg,.gpsbar svg,.alerts svg{width:20px;height:20px}
+.kitchen .k-head{display:block}
+.kitchen .k-head h2{font-size:24px;color:var(--fg)}
+.k-live{margin:4px 0 0!important;color:var(--k-green)!important;font-weight:600;font-size:14px!important}
+#kApp{display:flex;flex-direction:column;gap:14px;min-width:0}
+.kpanel{display:flex;flex-direction:column;gap:14px;min-width:0}
+.kcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:14px}
+.kcard h4{margin:0 0 12px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+.prow{display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:12px 14px;font-weight:600;cursor:pointer}
+.prow-i{width:34px;height:34px;border-radius:10px;background:var(--surface-2);display:grid;place-items:center;color:var(--muted)}
+.prow-t{flex:1}
+.tgl{appearance:none;-webkit-appearance:none;width:46px;height:26px;border-radius:99px;background:#2A3E5E;position:relative;cursor:pointer;transition:background .2s;margin:0;flex:none}
+.tgl::after{content:"";position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;transition:transform .2s}
+.tgl:checked{background:var(--k-green)}
+.tgl:checked::after{transform:translateX(20px)}
+.chart{display:flex;align-items:flex-end;gap:10px;height:150px;padding-top:22px;border-bottom:1px solid var(--line)}
+.bar{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0}
+.bar i{display:block;width:100%;max-width:44px;border-radius:6px 6px 0 0;background:var(--k-blue);position:relative}
+.bar.now i{background:var(--k-green)}
+.bar i span{position:absolute;bottom:100%;left:50%;transform:translateX(-50%);padding-bottom:4px;font-size:12px;font-weight:700;white-space:nowrap}
+.xlab{display:flex;gap:10px;margin-top:6px}
+.xlab span{flex:1;text-align:center;font-size:11px;color:var(--muted)}
+.chart-empty{height:150px;display:grid;place-items:center;color:var(--muted);font-size:13px;text-align:center}
+.tiles{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.tile{border-radius:16px;padding:12px;display:flex;flex-direction:column;gap:2px;min-height:96px;position:relative;color:#fff}
+.tile b{font-family:var(--f-display);font-size:26px;margin-top:auto}
+.tile small{font-size:12px;opacity:.85}
+.ti{position:absolute;top:10px;right:10px;width:30px;height:30px;border-radius:50%;background:rgba(255,255,255,.16);display:grid;place-items:center}
+.t-red{background:var(--k-red)}.t-purple{background:var(--k-purple)}.t-gold{background:var(--k-gold)}
+.gpsbar{display:flex;align-items:center;gap:10px;border:0;border-radius:14px;padding:13px 14px;font-weight:700;text-align:left;background:var(--surface);color:var(--muted);border:1px solid var(--line)}
+.gpsbar.on{background:var(--k-green);color:#06210F;border-color:var(--k-green)}
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alerts .al{display:flex;align-items:center;gap:8px;font-size:14px}
+.alerts .al svg{color:var(--warn)}
+.alerts b.low{color:var(--red-ink);letter-spacing:.04em}
+.alerts .ok{color:var(--muted);font-size:13px}
+.alerts button{border:0;background:none;color:var(--k-blue);font-weight:600;padding:0;align-self:flex-start;font-size:13px}
+.ptitle h3{margin:0;font-family:var(--f-display);font-size:20px}
+.ptitle p{margin:4px 0 0;font-size:13px;color:var(--muted)}
+.knav{position:sticky;bottom:0;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--surface);border-top:1px solid var(--line);margin:0 -18px;padding:6px 6px calc(6px + env(safe-area-inset-bottom,0px));border-radius:0 0 22px 22px;z-index:5}
+.knav button{border:0;background:none;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 2px;color:var(--muted);font-size:11.5px;font-weight:600;position:relative}
+.knav button[aria-selected="true"]{color:var(--k-blue)}
+.knav button[aria-selected="true"]::before{content:"";position:absolute;top:-6px;left:28%;right:28%;height:3px;border-radius:0 0 3px 3px;background:var(--k-blue)}
+.kitchen .col{background:var(--surface-2)}
+.kitchen .order{background:var(--surface)}
+.kitchen .o-btn{background:var(--k-blue)!important;color:#fff}
+.kitchen .session{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;font-size:14px}
+.kitchen .session button{border:1px solid var(--line);background:var(--surface-2);color:var(--fg);border-radius:10px;padding:8px 12px;font-weight:600}
+@media (max-width:520px){.tiles{gap:8px}.tile{padding:10px;min-height:86px}.tile b{font-size:20px}.ti{width:24px;height:24px;top:8px;right:8px}.ti svg{width:15px;height:15px}.chart,.xlab{gap:6px}}
 .item.sold .thumb{opacity:.45}
 .sold-tag{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;background:var(--warn-bg);color:var(--warn);border-radius:6px;padding:2px 6px;vertical-align:middle}
 .menued{display:flex;flex-direction:column;gap:12px}
@@ -283,7 +353,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 </style>
 
 <header class="top">
-  <div class="brand"><b>On<span>Route</span></b><small>by InnovationTECH</small></div>
+  <div class="logo" aria-label="OnRoute by InnovationTECH"><svg class="logo-o" viewBox="0 0 64 64" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><span class="wm"><b><em>n</em>Route</b><small>by InnovationTECH</small></span></div>
   <span class="demo-tag" id="modeTag">Conectando…</span>
 </header>
 
@@ -331,54 +401,75 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
   <section class="k-wrap" aria-label="Tableta de cocina">
     <p class="panel-label">Lo que ve el food truck en la tableta</p>
     <div class="kitchen">
+      <div class="k-top">
+        <div class="logo sm" aria-label="OnRoute by InnovationTECH"><svg class="logo-o" viewBox="0 0 64 64" aria-hidden="true"><path d="M43.2 18.6 A19.3 19.3 0 1 0 50.6 29" fill="none" stroke="#3DBE6B" stroke-width="7" stroke-linecap="round"/><circle cx="49.3" cy="23.6" r="6.6" fill="currentColor"/></svg><span class="wm"><b><em>n</em>Route</b><small>by InnovationTECH</small></span></div>
+        <button class="k-gear" data-ktab="config" aria-label="Configuración"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+      </div>
       <div class="k-head">
-        <div><h2>Cocina · Tortas Tortuga</h2><p>Los pedidos de la app entran aquí solos.</p></div>
-        <label class="switch" for="pauseToggle" id="pauseWrap"><input type="checkbox" id="pauseToggle"> Pausar pedidos en línea</label>
+        <h2>Cocina · Tortas Tortuga</h2>
+        <p class="k-live" id="kLive">En vivo · Pago de prueba</p>
       </div>
       <div id="kAuth" hidden></div>
-      <div class="gps" id="kLoc" hidden>
-        <div class="gps-head"><div><h3>Ubicación del camión</h3><p id="gpsStatus">No estás compartiendo la ubicación.</p></div>
-          <button class="gps-btn" id="gpsBtn">Compartir ubicación</button></div>
-        <div class="gps-fields">
-          <label for="gpsStop">Parada de hoy<input id="gpsStop" maxlength="60" placeholder="Ej. The Block"></label>
-          <label for="gpsHours">Horario<input id="gpsHours" maxlength="60" placeholder="Ej. 10 am – 6 pm"></label>
-        </div>
-        <p class="hint">Deja esta página abierta en la tableta del camión. La ubicación se actualiza sola cada minuto y la pantalla no se apaga mientras compartes.</p>
-      </div>
-      <div class="k-stats" id="kStats">
-        <div><small>Pedidos hoy</small><b class="mono" id="sOrders">0</b></div>
-        <div><small>Ventas hoy</small><b class="mono" id="sSales">$0</b></div>
-        <div><small>Comisión ahorrada</small><b class="mono" id="sSaved" style="color:var(--ok)">$0</b></div>
-      </div>
-      <div class="ktabs" id="kTabs" role="tablist">
-        <button role="tab" data-ktab="board" aria-selected="true">Pedidos activos</button>
-        <button role="tab" data-ktab="hist" aria-selected="false">Historial</button>
-        <button role="tab" data-ktab="menu" aria-selected="false">Menú</button>
-      </div>
-      <div class="board" id="board"></div>
-      <div class="menued" id="menuEd" hidden>
-        <p class="hint">Cambia precios, marca platillos como agotados o agrega nuevos. Los clientes ven los cambios al tocar Guardar.</p>
-        <div id="meList"></div>
-        <button class="me-add" data-me="additem">+ Agregar platillo</button>
-        <div class="me-bar" id="meBar">
-          <span id="meState">Sin cambios</span>
-          <div><button class="me-sec" data-me="discard">Descartar</button><button class="me-save" data-me="save">Guardar cambios</button></div>
-        </div>
-        <datalist id="catList"></datalist>
-      </div>
-      <div class="hist" id="hist" hidden>
-        <div class="h-controls">
-          <div class="seg" id="hRange">
-            <button data-range="today" aria-pressed="true">Hoy</button>
-            <button data-range="yesterday" aria-pressed="false">Ayer</button>
-            <button data-range="week" aria-pressed="false">7 días</button>
+      <div id="kApp">
+        <div class="kpanel" id="pBoard">
+          <label class="prow" for="pauseToggle" id="pauseWrap"><span class="prow-i"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M10 9v6M14 9v6"/></svg></span><span class="prow-t">Pausar pedidos en línea</span><input type="checkbox" id="pauseToggle" class="tgl"></label>
+          <div class="kcard">
+            <h4>Resumen de ventas de hoy</h4>
+            <div class="chart" id="salesChart"></div>
           </div>
-          <input id="hSearch" type="search" placeholder="Buscar por nombre del cliente" autocomplete="off">
+          <div class="tiles" id="kStats">
+            <div class="tile t-red"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 9v.01M18 15v.01"/></svg></span><b class="mono" id="sSales">$0</b><small>Ventas hoy</small></div>
+            <div class="tile t-purple"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M6 7h12l-1 13H7L6 7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg></span><b class="mono" id="sOrders">0</b><small>Pedidos hoy</small></div>
+            <div class="tile t-gold"><span class="ti"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 11a7 6 0 0 1 13-2h1.5v3H19a7 6 0 0 1-3 4v3h-3v-2h-2v2H8v-3a6 6 0 0 1-3-5z"/><path d="M15 10v.01"/></svg></span><b class="mono" id="sSaved">$0</b><small>Comisión ahorrada</small></div>
+          </div>
+          <button class="gpsbar" id="gpsBar" data-ktab="config"></button>
+          <div class="kcard alerts" id="stockAlerts"></div>
+          <div class="board" id="board"></div>
         </div>
-        <div class="h-sum" id="hSum"></div>
-        <div class="h-list" id="hList"></div>
+        <div class="kpanel menued" id="menuEd" hidden>
+          <div class="ptitle"><h3>Inventario y menú</h3><p>Cambia precios, marca platillos como agotados o agrega nuevos. Los clientes ven los cambios al tocar Guardar.</p></div>
+          <div id="meList"></div>
+          <button class="me-add" data-me="additem">+ Agregar platillo</button>
+          <div class="me-bar" id="meBar">
+            <span id="meState">Sin cambios</span>
+            <div><button class="me-sec" data-me="discard">Descartar</button><button class="me-save" data-me="save">Guardar cambios</button></div>
+          </div>
+          <datalist id="catList"></datalist>
+        </div>
+        <div class="kpanel hist" id="hist" hidden>
+          <div class="ptitle"><h3>Reportes</h3><p>Pedidos entregados, ventas y ticket promedio.</p></div>
+          <div class="h-controls">
+            <div class="seg" id="hRange">
+              <button data-range="today" aria-pressed="true">Hoy</button>
+              <button data-range="yesterday" aria-pressed="false">Ayer</button>
+              <button data-range="week" aria-pressed="false">7 días</button>
+            </div>
+            <input id="hSearch" type="search" placeholder="Buscar por nombre del cliente" autocomplete="off">
+          </div>
+          <div class="h-sum" id="hSum"></div>
+          <div class="h-list" id="hList"></div>
+        </div>
+        <div class="kpanel" id="pConfig" hidden>
+          <div class="ptitle"><h3>Configuración</h3></div>
+          <div class="gps kcard" id="kLoc" hidden>
+            <div class="gps-head"><div><h3>Ubicación del camión</h3><p id="gpsStatus">No estás compartiendo la ubicación.</p></div>
+              <button class="gps-btn" id="gpsBtn">Compartir ubicación</button></div>
+            <div class="gps-fields">
+              <label for="gpsStop">Parada de hoy<input id="gpsStop" maxlength="60" placeholder="Ej. The Block"></label>
+              <label for="gpsHours">Horario<input id="gpsHours" maxlength="60" placeholder="Ej. 10 am – 6 pm"></label>
+            </div>
+            <p class="hint">Deja esta página abierta en la tableta del camión. La ubicación se actualiza sola cada minuto y la pantalla no se apaga mientras compartes.</p>
+          </div>
+          <div class="kcard session" id="kSession"></div>
+          <p class="hint" id="kHint">Abre esta misma página en otro aparato: en uno la app del cliente y en el otro la cocina. Los pedidos pasan de uno a otro al instante.</p>
+        </div>
+        <nav class="knav" id="kTabs" role="tablist" aria-label="Secciones de la cocina">
+          <button role="tab" data-ktab="board" aria-selected="true"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg><span>Pedidos</span></button>
+          <button role="tab" data-ktab="menu" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 3 7.5l9 4.5 9-4.5L12 3z"/><path d="M3 7.5V16.5L12 21l9-4.5V7.5M12 12v9"/></svg><span>Inventario</span></button>
+          <button role="tab" data-ktab="hist" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="3" width="16" height="18" rx="2"/><path d="M8 17v-4M12 17V8M16 17v-6"/></svg><span>Reportes</span></button>
+          <button role="tab" data-ktab="config" aria-selected="false"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span>Configuración</span></button>
+        </nav>
       </div>
-      <p class="hint" id="kHint">Abre esta misma página en otro aparato: en uno la app del cliente y en el otro la cocina. Los pedidos pasan de uno a otro al instante.</p>
     </div>
   </section>
 </main>
@@ -1053,6 +1144,9 @@ svg.leaflet-image-layer.leaflet-interactive path {
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js"></script>
 <script>
+const I_PIN='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5A7 7 0 0 1 19 9.5C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg>';const I_ALERT='<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 2 20h20L12 3z"/><path d="M12 10v4M12 17v.01"/></svg>';
+</script>
+<script>
 // Menú real de Tortas Tortuga. Combo = torta + Coca-Cola + Lay's. Solo torta = $1 menos. Precios con impuesto incluido.
 let MENU=[
   {id:"orig",n:1,cat:"Tortas",name:"Original Torta Tortuga",desc:"1 aguacate entero, 3 carnes (jamón, queso de puerco y pavo), tomate, cebolla, mayo y queso fresco",
@@ -1187,15 +1281,16 @@ function renderAuth(){
       <p>La cuenta ${esc(u.email||"")} no es la del dueño.</p>
       <div class="btns"><button class="secondary" data-auth="logout">Cerrar sesión</button></div>
     </div>`}
-  else{key="own|"+u.email;html=`<div class="session"><span>Sesión: ${esc(u.email||"")}</span><button data-auth="logout">Cerrar sesión</button></div>`}
+  else{key="own";html=""}
   if(key!==authKey){box.innerHTML=html;authKey=key}
 }
 function renderKitchen(){
   const gated=!!state.fb&&!state.isOwner;
   $("#kAuth").hidden=!state.fb;
-  $("#kStats").hidden=gated;$("#kTabs").hidden=gated;if(gated)$("#hist").hidden=true;$("#kLoc").hidden=!state.fb||gated;$("#board").hidden=gated;$("#pauseWrap").hidden=gated;
+  $("#kApp").hidden=gated;$("#kLoc").hidden=!state.fb;
   if(state.fb)renderAuth();
   if(gated)return;
+  renderChart();renderAlerts();renderGpsBar();renderSession();
   const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
   const act={new:"Empezar",prep:"Marcar listo",ready:"Entregado"};
   const active=state.orders.filter(o=>o.status!=="done");
@@ -1328,7 +1423,7 @@ function renderHist(){
 function setKtab(t){
   state.ktab=t;
   document.querySelectorAll("#kTabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.ktab===t));
-  $("#board").hidden=t!=="board";$("#hist").hidden=t!=="hist";$("#menuEd").hidden=t!=="menu";renderHist();if(t==="menu"){if(!meDirty)meDraft=cloneMenu(MENU);renderMenuEd()}
+  showPanels();renderHist();if(t==="menu"){if(!meDirty)meDraft=cloneMenu(MENU);renderMenuEd()}
 }
 document.addEventListener("click",e=>{
   const t=e.target.closest("button");if(!t)return;
@@ -1337,7 +1432,36 @@ document.addEventListener("click",e=>{
   else if(t.dataset.repeat){const L0=getLast();if(!L0)return;state.cart={...L0.cart};if(L0.name&&!state.name)state.name=L0.name;state.view="cart";render()}
 });
 $("#hSearch").addEventListener("input",e=>{state.hq=e.target.value;renderHist()});
-function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){$("#board").hidden=state.ktab!=="board";$("#hist").hidden=state.ktab!=="hist";$("#menuEd").hidden=state.ktab!=="menu";renderHist()}else{$("#menuEd").hidden=true}}
+function showPanels(){const t=state.ktab;$("#pBoard").hidden=t!=="board";$("#hist").hidden=t!=="hist";$("#menuEd").hidden=t!=="menu";$("#pConfig").hidden=t!=="config";
+  document.querySelectorAll("#kTabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.ktab===t))}
+function renderChart(){
+  const now=new Date(),t0=todayStart(),by={};
+  state.orders.forEach(o=>{if(o.createdAt>=t0){const h=new Date(o.createdAt).getHours();by[h]=(by[h]||0)+Number(o.total||0)}});
+  const hrs=Object.keys(by).map(Number);
+  if(!hrs.length){$("#salesChart").outerHTML=`<div class="chart-empty" id="salesChart">Aún no hay ventas hoy. Aquí verás lo vendido por hora.</div>`;const x=$("#salesXlab");if(x)x.remove();return}
+  const end=now.getHours(),start=Math.max(Math.min(...hrs),end-7),list=[];for(let h=start;h<=end;h++)list.push(h);
+  const max=Math.max(...list.map(h=>by[h]||0),1),lab=h=>`${h%12||12}${h<12?"a":"p"}`;
+  const html=list.map(h=>`<div class="bar ${h===end?"now":""}"><i style="height:${Math.max(2,Math.round((by[h]||0)/max*100))}%">${by[h]?`<span class="mono">$${Math.round(by[h])}</span>`:""}</i></div>`).join("");
+  let el=$("#salesChart");if(!el.classList.contains("chart"))el.outerHTML=`<div class="chart" id="salesChart"></div>`;
+  $("#salesChart").innerHTML=html;
+  let x=$("#salesXlab");if(!x){$("#salesChart").insertAdjacentHTML("afterend",`<div class="xlab" id="salesXlab"></div>`);x=$("#salesXlab")}
+  x.innerHTML=list.map(h=>`<span>${lab(h)}</span>`).join("");
+}
+function renderAlerts(){
+  const sold=MENU.filter(m=>m.soldOut);
+  $("#stockAlerts").innerHTML=`<h4>Alertas de inventario</h4>`+(sold.length?sold.map(m=>`<div class="al">${I_ALERT}<span>${esc(m.name)}: <b class="low">AGOTADO</b></span></div>`).join("")+`<button data-ktab="menu">Ir a Inventario</button>`
+    :`<span class="ok">Todo el menú está disponible.</span>`);
+}
+function renderGpsBar(){
+  const b=$("#gpsBar"),L0=state.loc,on=state.fb&&L0&&L0.sharing&&Date.now()-L0.updatedAt<5*60000;
+  b.classList.toggle("on",!!on);
+  b.innerHTML=I_PIN+`<span>${!state.fb?"GPS disponible en la versión en línea":on?`Ubicación compartida${L0.stop?" · "+esc(L0.stop):""}`:"Ubicación apagada · tocar para compartir"}</span>`;
+}
+function renderSession(){
+  const u=state.user;
+  $("#kSession").innerHTML=state.fb&&u?`<span>Sesión: ${esc(u.email||"")}</span><button data-auth="logout">Cerrar sesión</button>`:`<span class="hint">Modo sin conexión: no hay sesión.</span>`;
+}
+function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){showPanels();renderHist()}}
 
 function setMode(){
   const t=$("#modeTag");
@@ -1447,6 +1571,7 @@ function metersBetween(a,b){const R=6371000,t=Math.PI/180,dLa=(b[0]-a[0])*t,dLo=
   const h=Math.sin(dLa/2)**2+Math.cos(a[0]*t)*Math.cos(b[0]*t)*Math.sin(dLo/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
 function renderLoc(){
   if(!state.fb)return;
+  try{renderGpsBar()}catch(e){}
   const L0=state.loc, has=!!L0&&typeof L0.lat==="number";
   const fresh=has&&L0.sharing&&Date.now()-L0.updatedAt<5*60000;
   $("#locStop").textContent=has?(L0.stop?`Hoy en ${L0.stop}`:"Ubicación del camión"):"Ubicación aún no disponible";
