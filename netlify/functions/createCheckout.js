@@ -1,7 +1,7 @@
 // El cliente paga con tarjeta: se calcula el total con los precios reales del menú,
 // se crea el pedido como "pending" y se abre Stripe Checkout en la cuenta de Stripe del negocio (Connect).
 // El dinero llega directo al negocio y Stripe le cobra a él su comisión; OnRoute no se queda con nada.
-const { admin, db, stripe, handler, userOf, inHours, truckLive, SITE, RID } = require("../lib/onroute");
+const { db, stripe, handler, userOf, inHours, truckLive, SITE, RID } = require("../lib/onroute");
 
 function menuFromDb(items) {
   return (items || []).filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length).map(x => ({

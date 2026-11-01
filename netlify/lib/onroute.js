@@ -3,7 +3,9 @@
 //   STRIPE_SECRET_KEY          llave secreta de Stripe (sk_test_... en pruebas)
 //   STRIPE_WEBHOOK_SECRET      secreto del webhook (whsec_...); si hay dos, sepáralos con coma
 //   FIREBASE_SERVICE_ACCOUNT   contenido completo del archivo JSON de la cuenta de servicio de Firebase
-const admin = require("firebase-admin");
+const { initializeApp, getApps, cert } = require("firebase-admin/app");
+const { getFirestore } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const Stripe = require("stripe");
 
 const SITE = process.env.ONROUTE_SITE || "https://innovationtech1.github.io/onRoute/";
@@ -13,12 +15,12 @@ const RID = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 let _db = null, _stripe = null;
 function db() {
   if (_db) return _db;
-  if (!admin.apps.length) {
+  if (!getApps().length) {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!raw) throw new Error("Falta FIREBASE_SERVICE_ACCOUNT en Netlify.");
-    admin.initializeApp({ credential: admin.credential.cert(JSON.parse(raw)) });
+    initializeApp({ credential: cert(JSON.parse(raw)) });
   }
-  _db = admin.firestore();
+  _db = getFirestore();
   return _db;
 }
 function stripe() {
@@ -68,7 +70,7 @@ async function userOf(event) {
   const m = /^Bearer (.+)$/.exec(String((event.headers && (event.headers.authorization || event.headers.Authorization)) || ""));
   if (!m) return null;
   db();
-  try { return await admin.auth().verifyIdToken(m[1]); } catch (e) { return null; }
+  try { return await getAuth().verifyIdToken(m[1]); } catch (e) { return null; }
 }
 
 // ---- Horario (misma lógica que la página) ----
@@ -90,4 +92,4 @@ function inHours(r) {
 }
 const truckLive = r => !!(r.kind === "truck" && r.loc && r.loc.sharing && Date.now() - Number(r.loc.updatedAt || 0) < 15 * 60000);
 
-module.exports = { admin, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
+module.exports = { db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
