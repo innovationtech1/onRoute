@@ -1212,7 +1212,7 @@ body[data-app="cocina"] .top{--surface:#0F1E33;--surface-2:#13243D;--fg:#EAF0F8;
   .side-pane .ticket,.side-pane .choices button,.side-pane .field input{background:var(--surface)}
   .cartbar,.m-only{display:none!important}
   .menu-pane{padding-bottom:28px}
-  .menu{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px!important}
+  .menu{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px!important}
   .item{border:1px solid var(--line)!important;border-radius:16px;padding:14px!important;background:var(--surface);align-content:start}
   .last{max-width:560px}
 }
@@ -1256,7 +1256,7 @@ body[data-app="cocina"] .top{--surface:#0F1E33;--surface-2:#13243D;--fg:#EAF0F8;
   .menued,.hist,#pConfig{max-width:980px}
 }
 /* Escritorio grande: el tablero de pedidos llena la pantalla y cada columna se desplaza sola */
-@media (min-width:1100px) and (min-height:600px){
+@media (min-width:1100px) and (min-height:500px){
   #pBoard{display:grid!important;overflow:hidden;gap:14px!important;
     grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);
     grid-template-areas:"tiles tiles chart" "pause gps alerts" "board board board";
@@ -1288,6 +1288,33 @@ body[data-app="cocina"] .top{--surface:#0F1E33;--surface-2:#13243D;--fg:#EAF0F8;
   .top .logo small{font-size:10px}
   .top .tabs button{padding:7px 11px}
 }
+/* Pantallas de escritorio bajitas (laptops, ventanas pequeñas) */
+@media (min-width:1100px) and (max-height:760px){
+  .tile{padding:10px 12px!important}
+  .tile b{font-size:22px!important}
+  .ti{width:26px!important;height:26px!important;top:8px!important;right:8px!important}
+  .ti svg{width:15px!important;height:15px!important}
+  .chart,.chart-empty{height:64px!important;padding-top:14px}
+  .xlab{margin-top:2px}
+  .prow{padding:8px 12px!important}
+  .gpsbar{padding:9px 12px!important}
+  #stockAlerts{max-height:64px!important}
+  .kitchen .k-head{padding-top:8px;padding-bottom:6px}
+  .kpanel{padding-top:14px!important;padding-bottom:14px!important}
+  #pBoard{gap:10px!important}
+  .hero{padding:16px!important}
+  .truck-name{font-size:24px!important}
+  #map{height:clamp(150px,30vh,260px)!important}
+  .howto{gap:10px;padding-top:12px}
+}
+/* Barras de desplazamiento discretas */
+.client,.main-col,.menu-pane,.side-pane,.hero,.kpanel,.board .col,#kAuth{scrollbar-width:thin;scrollbar-color:color-mix(in srgb,var(--muted) 45%,transparent) transparent}
+.client ::-webkit-scrollbar,.kitchen ::-webkit-scrollbar{width:8px;height:8px}
+.client ::-webkit-scrollbar-thumb,.kitchen ::-webkit-scrollbar-thumb{background:color-mix(in srgb,var(--muted) 40%,transparent);border-radius:8px}
+.client ::-webkit-scrollbar-track,.kitchen ::-webkit-scrollbar-track{background:transparent}
+/* En la cocina no se resalta "tu pedido de prueba" */
+.kitchen .order.mine{box-shadow:none!important}
+@media (min-width:561px){.k-live{display:none!important}}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
@@ -1470,7 +1497,7 @@ function renderAuth(){
 }
 function renderKitchen(){
   const gated=!!state.fb&&!state.isOwner;
-  $("#kAuth").hidden=!state.fb;
+  $("#kAuth").hidden=!state.fb||!gated;
   $("#kApp").hidden=gated;$("#kLoc").hidden=!state.fb;
   if(state.fb)renderAuth();
   if(gated)return;
