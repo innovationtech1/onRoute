@@ -1,5 +1,5 @@
 # Netlify solo se usa para el servidor de pagos (Stripe Connect).
-# La app sigue en GitHub Pages: https://innovationtech1.github.io/onRoute/
+# La app sigue en GitHub Pages con su dominio propio: https://getonroute.app/
 [build]
   command = ""
   publish = "netlify/public"

@@ -2,6 +2,8 @@
 
 Plataforma donde food trucks y restaurantes publican su menú con fotos y reciben pedidos directos, sin comisiones de apps de delivery. Los clientes ven los negocios más cercanos en lista y en mapa.
 
+**Dirección:** https://getonroute.app (la dirección vieja, innovationtech1.github.io/onRoute, redirige sola).
+
 ## Partes
 - **Explorar** (`/`): negocios publicados, ordenados por cercanía, con búsqueda, filtros y mapa.
 - **Página del negocio** (`/?r=<enlace>`): menú con fotos, carrito, pedido para llevar y seguimiento en vivo.

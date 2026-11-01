@@ -7,8 +7,8 @@
 // igual lleva los permisos CORS y la página puede mostrar el motivo.
 const fbApp = () => require("firebase-admin/app");
 
-const SITE = process.env.ONROUTE_SITE || "https://innovationtech1.github.io/onRoute/";
-const ALLOWED = ["https://innovationtech1.github.io", "http://localhost:5056", "http://localhost:5000", "http://127.0.0.1:5000"];
+const SITE = process.env.ONROUTE_SITE || "https://getonroute.app/";
+const ALLOWED = ["https://getonroute.app", "https://www.getonroute.app", "https://innovationtech1.github.io", "http://localhost:5056", "http://localhost:5000", "http://127.0.0.1:5000"];
 const RID = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 
 let _db = null, _stripe = null;
