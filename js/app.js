@@ -224,7 +224,7 @@
     return false;
   }
   function fmt12(t) { const h = Number(t.slice(0, 2)), m = t.slice(3), hh = h % 12 || 12; return `${hh}${m !== "00" ? ":" + m : ""} ${h < 12 ? "am" : "pm"}`; }
-  const dayText = d => d.closed ? "Cerrado" : `${fmt12(d.open)} – ${fmt12(d.close)}`;
+  const dayText = d => d.closed ? "Cerrado" : d.open === "00:00" && (d.close === "23:59" || d.close === "00:00") ? "Abierto todo el día" : `${fmt12(d.open)} – ${fmt12(d.close)}`;
   function nextOpen(r) {
     const h = hoursOf(r), n = nowIn(h.tz);
     for (let k = 0; k < 8; k++) {
@@ -368,8 +368,8 @@
     else if (!list.length) html = `<div class="dir-empty"><h3>Sin resultados</h3><p>Prueba con otra palabra o quita el filtro.</p></div>`;
     else html = list.map(({ r, d }) => `<a class="rcard ${S.hover === r.id ? "sel" : ""}" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">
         ${logoHTML(r)}
-        <div style="min-width:0"><h3>${esc(r.name)}</h3><p class="meta">${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""}</p><p class="meta">${esc(r.kind === "truck" && r.loc && r.loc.stop ? r.loc.stop : r.address || r.description || "")}</p>${(() => { const ps = autoPromos(r), L = loyaltyOf(r); return ps.length || L ? `<p class="meta perk-line">${I.tag}${esc(ps.length ? ps.map(p => p.title || promoShort(p)).join(" · ") : "Tarjeta de cliente frecuente")}</p>` : ""; })()}</div>
-        <div class="side">${d != null ? `<span class="dist mono">${fmtMi(d)}</span>` : ""}<span class="chip cdot ${isOpen(r) ? "open" : "closed"}">${esc(openText(r))}</span></div></a>`).join("");
+        <div style="min-width:0"><h3>${esc(r.name)}</h3><span class="chip cdot rstat ${isOpen(r) ? "open" : "closed"}">${esc(openText(r))}</span><p class="meta">${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""}</p><p class="meta">${esc(r.kind === "truck" && r.loc && r.loc.stop ? r.loc.stop : r.address || r.description || "")}</p>${(() => { const ps = autoPromos(r), L = loyaltyOf(r); return ps.length || L ? `<p class="meta perk-line">${I.tag}${esc(ps.length ? ps.map(p => p.title || promoShort(p)).join(" · ") : "Tarjeta de cliente frecuente")}</p>` : ""; })()}</div>
+        <div class="side">${d != null ? `<span class="dist mono">${fmtMi(d)}</span>` : ""}</div></a>`).join("");
     $("#dirCards").innerHTML = html;
     drawDirMap(list);
   }
