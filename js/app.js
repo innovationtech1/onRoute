@@ -1407,7 +1407,7 @@ Reglas:
     if (S.user) headers.Authorization = "Bearer " + (await S.user.getIdToken());
     const r = await fetch(window.ONROUTE_API + "/" + path, { method: "POST", headers, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error(j.error || "No se pudo conectar con el servidor de pagos.");
+    if (!r.ok) throw new Error((j.error || "No se pudo conectar con el servidor de pagos.") + (j.detail ? ` Detalle: ${j.detail}` : ""));
     return j;
   }
   async function stripeGo() {

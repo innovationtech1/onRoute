@@ -50,9 +50,18 @@ function handler(name, fn) {
       return { statusCode: status, headers: h, body: JSON.stringify(out) };
     } catch (e) {
       console.error(name, e);
-      return { statusCode: 500, headers: h, body: JSON.stringify({ error: "Algo falló en el servidor de pagos. Intenta otra vez." }) };
+      return { statusCode: 500, headers: h, body: JSON.stringify({ error: "Algo falló en el servidor de pagos. Intenta otra vez.", detail: why(e) }) };
     }
   };
+}
+// Explicación corta del error para poder diagnosticarlo (nunca incluye llaves).
+function why(e) {
+  const m = String((e && e.message) || e || "").slice(0, 300);
+  if (e && e.type && /^Stripe/.test(e.type)) return `Stripe: ${m}`;
+  if (/FIREBASE_SERVICE_ACCOUNT|STRIPE_SECRET_KEY/.test(m)) return m;
+  if (e instanceof SyntaxError) return "FIREBASE_SERVICE_ACCOUNT no tiene un JSON válido (¿se pegó completo?).";
+  if (/credential|private key|PEM|invalid_grant|service account/i.test(m)) return "Firebase: la cuenta de servicio no es válida. " + m.replace(/-----BEGIN[\s\S]*?-----END[^-]*-----/g, "[clave]").slice(0, 200);
+  return m.replace(/(sk|rk|whsec)_[A-Za-z0-9_]+/g, "[oculto]");
 }
 // Usuario con sesión iniciada (la página manda su token de Firebase).
 async function userOf(event) {
