@@ -11,9 +11,10 @@ window.FIREBASE_CONFIG = {
   measurementId: "G-2EVG253WCF"
 };
 
-// Servidor de pagos (Cloud Functions). La llave secreta de Stripe NO va aquí: vive en Secret Manager.
-window.ONROUTE_API = "https://us-central1-onroute-a6930.cloudfunctions.net";
-// Se activa cuando el servidor de pagos ya esté desplegado.
-window.ONROUTE_CARD_PAYMENTS = false;
+// Servidor de pagos (Netlify Functions + Stripe Connect). Las llaves secretas NO van aquí:
+// viven en las variables de entorno de Netlify.
+window.ONROUTE_API = "https://onroute-pagos.netlify.app/.netlify/functions";
+// Encendido: la opción de tarjeta solo aparece en los negocios que ya conectaron su cuenta de Stripe.
+window.ONROUTE_CARD_PAYMENTS = true;
 // true mientras uses las llaves de prueba de Stripe (sk_test_...).
 window.ONROUTE_STRIPE_TEST = true;

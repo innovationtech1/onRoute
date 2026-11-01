@@ -581,3 +581,8 @@ body[data-app="panel"] .top,body[data-app="admin"] .top{--surface:#0F1E33;--surf
 .pf{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted);min-width:0}
 .loy-f{display:grid;grid-template-columns:150px minmax(0,1fr);gap:10px}
 @media (max-width:560px){.pline{grid-template-columns:auto 1fr 1fr}.pline .pf:last-child{grid-column:1/-1}.loy-f{grid-template-columns:1fr}}
+
+/* Pagos con tarjeta (Stripe Connect) */
+.stripe-st{display:inline-flex;align-self:flex-start;align-items:center;gap:6px;padding:5px 10px;border-radius:999px;font-size:13px;font-weight:700;background:var(--surface-2);color:var(--muted)}
+.stripe-st.ok{background:color-mix(in srgb,#22C55E 18%,transparent);color:#4ADE80}
+.stripe-st.half{background:color-mix(in srgb,#F59E0B 18%,transparent);color:#FBBF24}

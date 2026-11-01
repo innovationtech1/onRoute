@@ -1,0 +1,10 @@
+{
+  "name": "onroute",
+  "private": true,
+  "description": "OnRoute: la página vive en GitHub Pages; esto solo instala lo que usa el servidor de pagos en Netlify.",
+  "engines": { "node": ">=20" },
+  "dependencies": {
+    "firebase-admin": "^14.5.0",
+    "stripe": "^23.1.0"
+  }
+}

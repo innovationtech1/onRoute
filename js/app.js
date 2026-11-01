@@ -93,7 +93,10 @@
     $("#stage").innerHTML = `<div class="fatal"><h2>No se pudo conectar</h2><p class="hint">Revisa tu conexión a internet y vuelve a abrir OnRoute.</p></div>`;
     return;
   }
-  const cardOn = () => !!(window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API);
+  // Tarjeta solo si el servidor de pagos está encendido y este negocio ya conectó su cuenta de Stripe.
+  const cardOn = () => !!(window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API && S.R && S.R.stripeReady === true);
+  // Regreso desde Stripe después de conectar la cuenta del negocio (?stripe=back#panel).
+  const stripeBack = (() => { try { const q = new URLSearchParams(location.search), v = q.get("stripe"); if (v) { q.delete("stripe"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } return v || ""; } catch (e) { return ""; } })();
 
   // ---------------------------------------------------------------- estado
   const S = {
@@ -751,6 +754,7 @@
     if (!S.user) { if (!S.authRole) S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.my) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${regHTML()}</div></div>`; return; }
     const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["promo", "Promos", I.tag], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
+    if (stripeBack && !S.stripeChecked) { S.stripeChecked = true; S.ktab = "prof"; S.stripeMsg = stripeBack === "back" ? "Revisando tu cuenta de Stripe…" : "El enlace de Stripe caducó. Toca el botón otra vez."; if (stripeBack === "back") stripeStatus(); }
     if (!tabs.some(t => t[0] === S.ktab)) S.ktab = "orders";
     const key = S.my.id + "|" + tabs.length;
     if (v.dataset.built !== key) {
@@ -1347,6 +1351,9 @@ Reglas:
               <div class="hgrid" id="pfHours"></div>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-act="hcopy">Copiar el lunes a todos los días abiertos</button></div>
               <p class="hint">Si un turno pasa de medianoche (ej. 6 pm a 2 am), pon la hora de cierre menor a la de apertura.</p></div>
+            ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Pagos con tarjeta</h4>
+              <p class="hint">Conecta tu cuenta de Stripe y tus clientes podrán pagar con tarjeta al pedir. El dinero llega directo a tu cuenta de banco; Stripe te cobra su comisión por cada pago y OnRoute no cobra nada.</p>
+              <div id="pfStripe"></div></div>` : ""}
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
@@ -1372,6 +1379,13 @@ Reglas:
         ${d.closed ? `<span class="hint">Cerrado</span>` : `<input type="time" data-ht="${i}" data-hk="open" value="${esc(d.open)}" aria-label="${DAYS[i]} abre"><span>a</span><input type="time" data-ht="${i}" data-hk="close" value="${esc(d.close)}" aria-label="${DAYS[i]} cierra">`}</div>`; }).join("");
     }
     $("#pfLogo").innerHTML = logoHTML(R);
+    const sp = $("#pfStripe");
+    if (sp) {
+      const st = R.stripeReady ? "ok" : R.stripeAccount ? "half" : "none";
+      sp.innerHTML = `<div class="stripe-st ${st}">${st === "ok" ? "✓ Conectado · ya aceptas tarjeta" : st === "half" ? "Falta terminar el registro en Stripe" : "Sin conectar"}</div>
+        ${st !== "ok" ? `<button class="btn" data-act="stripego" ${S.stripeBusy ? "disabled" : ""}>${S.stripeBusy ? "Abriendo Stripe…" : st === "half" ? "Terminar registro en Stripe" : "Conectar con Stripe"}</button>` : `<button class="btn sec sm" data-act="stripechk" ${S.stripeBusy ? "disabled" : ""}>Revisar estado</button>`}
+        ${S.stripeMsg ? `<p class="hint">${esc(S.stripeMsg)}</p>` : ""}`;
+    }
     const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta|no dio permiso|no está activado|No pudimos|no cargó|no es una imagen|demasiado grande|Se cortó|Se llenó/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
     const pc = $("#pfCoords"); if (pc) pc.textContent = typeof P.lat === "number" ? `Ubicación marcada (${P.lat.toFixed(4)}, ${P.lng.toFixed(4)})` : "Aún no marcas tu ubicación.";
   }
@@ -1387,6 +1401,29 @@ Reglas:
     S.pf.lat = Math.round(lat * 1e6) / 1e6; S.pf.lng = Math.round(lng * 1e6) / 1e6; S.pfDirty = true; S.pfMsg = "Ubicación marcada. Toca Guardar perfil.";
     if (pfMap) { if (pfMarker) pfMarker.setLatLng([lat, lng]); else pfMarker = L.marker([lat, lng], { icon: pinIcon(S.my) }).addTo(pfMap); pfMap.setView([lat, lng], Math.max(pfMap.getZoom(), 16)); }
     paint(renderProf);
+  }
+  async function payApi(path, body) {
+    const headers = { "Content-Type": "application/json" };
+    if (S.user) headers.Authorization = "Bearer " + (await S.user.getIdToken());
+    const r = await fetch(window.ONROUTE_API + "/" + path, { method: "POST", headers, body: JSON.stringify(body) });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error || "No se pudo conectar con el servidor de pagos.");
+    return j;
+  }
+  async function stripeGo() {
+    S.stripeBusy = true; S.stripeMsg = ""; paint(renderProf);
+    try { const j = await payApi("connectStart", { rid: S.my.id }); location.href = j.url; }
+    catch (e) { S.stripeBusy = false; S.stripeMsg = e.message === "Failed to fetch" ? "No se pudo conectar con el servidor de pagos. Revisa tu conexión." : e.message; paint(renderProf); }
+  }
+  async function stripeStatus() {
+    S.stripeBusy = true; paint(renderPanel);
+    try {
+      for (let i = 0; i < 20 && !S.my; i++) await new Promise(r => setTimeout(r, 300));
+      if (!S.my) throw new Error("Inicia sesión con la cuenta del negocio.");
+      const j = await payApi("connectStatus", { rid: S.my.id });
+      S.stripeMsg = j.ready ? "¡Listo! Tus clientes ya pueden pagar con tarjeta." : j.connected ? "Stripe todavía necesita algunos datos tuyos o está revisándolos. Si ya terminaste, puede tardar unos minutos." : "";
+    } catch (e) { S.stripeMsg = e.message === "Failed to fetch" ? "No se pudo conectar con el servidor de pagos." : e.message; }
+    S.stripeBusy = false; paint(renderPanel);
   }
   async function saveProf() {
     const P = S.pf;
@@ -1634,6 +1671,8 @@ Reglas:
     if (d.adm) { setStatus(d.id, d.adm); return; }
     if (d.act === "import") { importLegacy(); return; }
     if (d.act === "saveprof") { saveProf(); return; }
+    if (d.act === "stripego") { stripeGo(); return; }
+    if (d.act === "stripechk") { stripeStatus(); return; }
     if (d.act === "hcopy") { pfEnsure(); const m = S.pf.hours[1]; if (m.closed) { toast("Primero abre el lunes."); return; } S.pf.hours = S.pf.hours.map(x => x.closed ? x : { open: m.open, close: m.close }); S.pfDirty = true; S.pfMsg = "Horario copiado. Toca Guardar perfil."; paint(renderProf); return; }
     if (d.act === "pfhere") { if (!navigator.geolocation) return toast("Este navegador no tiene GPS."); navigator.geolocation.getCurrentPosition(p => setPfPos(p.coords.latitude, p.coords.longitude), () => toast("No se pudo obtener tu ubicación."), { enableHighAccuracy: true, timeout: 15000 }); return; }
     if (d.pfkind) { pfEnsure(); S.pf.kind = d.pfkind; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el cambio."; paint(renderProf); return; }

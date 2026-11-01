@@ -9,7 +9,7 @@ Plataforma donde food trucks y restaurantes publican su menú con fotos y recibe
 - **Negocios** (solo administrador): aprobar o suspender negocios.
 
 ## Tecnología
-HTML, CSS y JavaScript sin compilar (GitHub Pages) · Firebase Authentication, Firestore y Storage · Leaflet + OpenStreetMap · Cloud Functions + Stripe para pagos con tarjeta (ver `PAGOS.md`).
+HTML, CSS y JavaScript sin compilar (GitHub Pages) · Firebase Authentication, Firestore y Storage · Leaflet + OpenStreetMap · Netlify Functions + Stripe Connect para pagos con tarjeta (ver `PAGOS.md`).
 
 ## Datos (Firestore)
 - `restaurants/{enlace}`: perfil, `ownerUid`, `status` (`pending`/`active`/`suspended`), ubicación (`lat`/`lng` o `loc` del GPS), `promos` (hasta 10: `kind` `pct`/`off`, `value`, `min`, `code` opcional, `on`) y `loyalty` (`on`, `every` sellos, `reward`).
