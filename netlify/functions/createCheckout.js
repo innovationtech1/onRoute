@@ -1,7 +1,7 @@
 // El cliente paga con tarjeta: se calcula el total con los precios reales del menú,
 // se crea el pedido como "pending" y se abre Stripe Checkout en la cuenta de Stripe del negocio (Connect).
 // El dinero llega directo al negocio y Stripe le cobra a él su comisión; OnRoute no se queda con nada.
-const { db, stripe, handler, userOf, inHours, truckLive, SITE, RID } = require("../lib/onroute");
+const { db, stripe, handler, userOf, acctStatus, inHours, truckLive, SITE, RID } = require("../lib/onroute");
 
 function menuFromDb(items) {
   return (items || []).filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length).map(x => ({
@@ -26,6 +26,10 @@ exports.handler = handler("createCheckout", async (body, event) => {
   if (R.paused) return [409, { error: "El negocio pausó los pedidos en línea. Intenta en unos minutos." }];
   if (!inHours(R)) return [409, { error: "El negocio está fuera de su horario." }];
   if (R.kind === "truck" && !truckLive(R)) return [409, { error: "El food truck no está en ruta ahora." }];
+  // Si Stripe ya aprobó la cuenta pero aún no lo sabíamos, se revisa aquí mismo.
+  if (R.stripeAccount && !R.stripeReady) {
+    try { if ((await acctStatus(R.stripeAccount)).ready) { R.stripeReady = true; await db().doc(`restaurants/${rid}`).update({ stripeReady: true }); } } catch (e) { console.warn("acctStatus", e.message); }
+  }
   if (!R.stripeAccount || !R.stripeReady) return [409, { error: "Este negocio todavía no acepta tarjeta. Elige Pagar al recoger." }];
   const variant = R.variant && R.variant.label && Number(R.variant.discount) > 0 ? { label: String(R.variant.label), discount: Number(R.variant.discount) } : null;
 

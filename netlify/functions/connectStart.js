@@ -1,5 +1,6 @@
-// El dueño de un negocio conecta su cuenta de Stripe (Stripe Connect, cuenta Standard).
-// Si aún no tiene, se le crea una; Stripe le pide sus datos y su cuenta de banco en su propia página.
+// El dueño de un negocio conecta su cuenta de Stripe (Stripe Connect, Accounts v2).
+// La cuenta tiene panel completo de Stripe; Stripe le cobra al negocio sus comisiones y asume las pérdidas
+// (equivale a una cuenta "Standard"). Stripe le pide sus datos y su cuenta de banco en su propia página.
 const { db, stripe, handler, userOf, SITE, RID } = require("../lib/onroute");
 
 exports.handler = handler("connectStart", async (body, event) => {
@@ -13,15 +14,26 @@ exports.handler = handler("connectStart", async (body, event) => {
 
   let acct = R.stripeAccount;
   if (!acct) {
-    const a = await stripe().accounts.create({
-      type: "standard", country: "US", email: user.email || undefined,
-      business_profile: { name: String(R.name || rid).slice(0, 60), url: `${SITE}?r=${rid}` },
+    const a = await stripe().v2.core.accounts.create({
+      display_name: String(R.name || rid).slice(0, 60),
+      contact_email: user.email || undefined,
+      dashboard: "full",
+      identity: { country: "us" },
+      configuration: { merchant: { capabilities: { card_payments: { requested: true } } } },
+      defaults: {
+        currency: "usd",
+        locales: ["es-419", "en-US"],
+        profile: { business_url: `${SITE}?r=${rid}`, product_description: "Venta de comida para llevar (pedidos en línea con OnRoute)" },
+        responsibilities: { fees_collector: "stripe", losses_collector: "stripe" },
+      },
       metadata: { rid, ownerUid: user.uid },
     });
     acct = a.id;
     await ref.update({ stripeAccount: acct, stripeReady: false });
   }
-  const back = SITE;
-  const link = await stripe().accountLinks.create({ account: acct, type: "account_onboarding", refresh_url: `${back}?stripe=retry#panel`, return_url: `${back}?stripe=back#panel` });
+  const link = await stripe().v2.core.accountLinks.create({
+    account: acct,
+    use_case: { type: "account_onboarding", account_onboarding: { refresh_url: `${SITE}?stripe=retry#panel`, return_url: `${SITE}?stripe=back#panel` } },
+  });
   return [200, { url: link.url }];
 });

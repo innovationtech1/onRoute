@@ -1,5 +1,5 @@
 // Revisa con Stripe si la cuenta del negocio ya puede cobrar, y lo guarda en el negocio.
-const { db, stripe, handler, userOf, RID } = require("../lib/onroute");
+const { db, handler, userOf, acctStatus, RID } = require("../lib/onroute");
 
 exports.handler = handler("connectStatus", async (body, event) => {
   const user = await userOf(event);
@@ -10,8 +10,7 @@ exports.handler = handler("connectStatus", async (body, event) => {
   const R = snap.exists ? snap.data() : null;
   if (!R || R.ownerUid !== user.uid) return [403, { error: "Solo el dueño del negocio puede ver esto." }];
   if (!R.stripeAccount) return [200, { connected: false, ready: false }];
-  const a = await stripe().accounts.retrieve(R.stripeAccount);
-  const ready = !!(a.charges_enabled && a.details_submitted);
-  if (ready !== !!R.stripeReady) await ref.update({ stripeReady: ready });
-  return [200, { connected: true, ready, pending: (a.requirements && a.requirements.currently_due || []).length }];
+  const st = await acctStatus(R.stripeAccount);
+  if (st.ready !== !!R.stripeReady) await ref.update({ stripeReady: st.ready });
+  return [200, { connected: true, ready: st.ready, pending: st.pending }];
 });

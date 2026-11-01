@@ -94,4 +94,12 @@ function inHours(r) {
 }
 const truckLive = r => !!(r.kind === "truck" && r.loc && r.loc.sharing && Date.now() - Number(r.loc.updatedAt || 0) < 15 * 60000);
 
-module.exports = { db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
+// Cuenta de Stripe del negocio (Accounts v2): lista para cobrar cuando la capacidad card_payments está activa.
+async function acctStatus(id) {
+  const a = await stripe().v2.core.accounts.retrieve(id, { include: ["configuration.merchant", "requirements"] });
+  const cp = a.configuration && a.configuration.merchant && a.configuration.merchant.capabilities && a.configuration.merchant.capabilities.card_payments;
+  const due = (a.requirements && Array.isArray(a.requirements.entries) ? a.requirements.entries : []).length;
+  return { ready: !!(cp && cp.status === "active"), pending: due };
+}
+
+module.exports = { acctStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
