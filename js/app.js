@@ -861,15 +861,38 @@
 
   // ---------- Menú desde una foto (Firebase AI Logic con Gemini)
   const AI_V = "12.19.0";
-  let aiModel = null;
-  async function menuModel() {
-    if (aiModel) return aiModel;
-    const appm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app.js`);
-    const aim = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-ai.js`);
+  // Modelos de Gemini en orden de preferencia; si Google retira uno (error 404), se usa el siguiente.
+  const AI_MODELS = ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.1-flash-lite"];
+  let aiMods = null; const aiModels = {};
+  async function menuModel(name) {
+    if (aiModels[name]) return aiModels[name];
+    if (!aiMods) {
+      const appm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app.js`);
+      const aim = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-ai.js`);
     const app = appm.getApps().find(a => a.name === "onroute-ai") || appm.initializeApp(window.FIREBASE_CONFIG, "onroute-ai");
-    const ai = aim.getAI(app, { backend: new aim.GoogleAIBackend() });
-    aiModel = aim.getGenerativeModel(ai, { model: "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json", temperature: 0.1 } });
-    return aiModel;
+    aiMods = { aim, ai: aim.getAI(app, { backend: new aim.GoogleAIBackend() }) };
+    }
+    aiModels[name] = aiMods.aim.getGenerativeModel(aiMods.ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0.1 } });
+    return aiModels[name];
+  }
+  let aiGood = null;
+  async function readWithGemini(parts, limit) {
+    const list = aiGood ? [aiGood] : AI_MODELS;
+    let last = null;
+    for (const name of list) {
+      try {
+        const model = await limit(menuModel(name), 20000);
+        const res = await limit(model.generateContent(parts), 90000);
+        aiGood = name;
+        return res;
+      } catch (e) {
+        last = e;
+        const m = String((e && e.message) || "");
+        if (!/404|not found|no longer available|not supported/i.test(m)) throw e;
+        console.warn("OnRoute: modelo no disponible, probando otro:", name);
+      }
+    }
+    throw last;
   }
   const MENU_PROMPT = `Transcribe el menú de restaurante que aparece en las fotos o documentos PDF adjuntos. Responde SOLO con JSON, con esta forma exacta:
 {"note":"","items":[{"name":"","category":"","description":"","options":[{"label":"","detail":"","price":0}]}]}
@@ -900,8 +923,7 @@ Reglas:
         parts.push({ inlineData: { data: await blobToB64(b), mimeType: b.type || "image/jpeg" } });
       }
       const limit = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
-      const model = await limit(menuModel(), 20000);
-      const res = await limit(model.generateContent(parts), 90000);
+      const res = await readWithGemini(parts, limit);
       const txt = res.response.text();
       let j = null; try { j = JSON.parse(txt); } catch (e) { const mm = txt.match(/\{[\s\S]*\}/); if (mm) j = JSON.parse(mm[0]); }
       if (!j || !Array.isArray(j.items)) throw new Error("formato");
@@ -926,7 +948,8 @@ Reglas:
         : /tipoarchivo/.test(m) ? "Ese archivo no es una foto ni un PDF."
         : /vacio/.test(m) ? "No encontramos platillos en la foto. Prueba con una foto más cerca, derecha y con buena luz."
         : /formato/.test(m) ? "No pudimos entender el menú de la foto. Intenta otra vez o con una foto más clara."
-        : /api-not-enabled|not been used|disabled|PERMISSION_DENIED|403|firebasevertexai|firebaseml|generativelanguage/i.test(m) ? "La lectura de menús todavía no está activada en Firebase. Activa Firebase AI Logic (Gemini Developer API) en la consola y vuelve a intentar."
+        : /no longer available|\b404\b/i.test(m) ? "Google cambió los modelos de Gemini disponibles. Avísale a InnovationTECH para actualizar OnRoute."
+        : /api-not-enabled|not been used|disabled|PERMISSION_DENIED|403/i.test(m) ? "La lectura de menús todavía no está activada en Firebase. Activa Firebase AI Logic (Gemini Developer API) en la consola y vuelve a intentar."
         : /quota|429|RESOURCE_EXHAUSTED/i.test(m) ? "Se llegó al límite de lecturas por ahora. Espera un minuto e intenta otra vez."
         : /timeout/.test(m) ? "El lector de menús tardó demasiado en responder. Intenta otra vez; si se repite, prueba con una sola foto."
         : /Failed to fetch|import|network/i.test(m) ? "No se pudo conectar con el lector de menús. Revisa tu internet e intenta otra vez."
