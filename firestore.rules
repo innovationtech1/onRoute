@@ -28,7 +28,8 @@ service cloud.firestore {
         && d.kind in ['truck','restaurant']
         && (!('description' in d) || (d.description is string && d.description.size() <= 300))
         && (!('cuisine' in d) || (d.cuisine is string && d.cuisine.size() <= 60))
-        && (!('paused' in d) || d.paused is bool);
+        && (!('paused' in d) || d.paused is bool)
+        && (!('logoUrl' in d) || (d.logoUrl is string && d.logoUrl.size() <= 60000));
     }
 
     // ---------- Administración ----------
@@ -94,6 +95,16 @@ service cloud.firestore {
           && request.resource.data.keys().hasOnly(['items','updatedAt'])
           && request.resource.data.items is list
           && request.resource.data.items.size() <= 100;
+      }
+
+      // Fotos de los platillos (plan gratuito): imágenes comprimidas, máximo ~300 KB cada una.
+      match /photos/{pid} {
+        allow read: if true;
+        allow create, update: if isOwnerOf(rid)
+          && request.resource.data.keys().hasOnly(['data','createdAt'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 300000;
+        allow delete: if isOwnerOf(rid);
       }
 
       // Pedidos: el cliente crea el suyo (pago al recoger) y lo sigue por su número;

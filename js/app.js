@@ -8,6 +8,8 @@
   const esc = s => String(s == null ? "" : s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const money = n => "$" + Number(n || 0).toFixed(2);
   const safeUrl = u => (typeof u === "string" && /^https:\/\/[^\s"'<>]+$/.test(u) ? u : "");
+  const safeImg = u => (typeof u === "string" && /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/=]+$/.test(u) ? u : safeUrl(u));
+  const safePhoto = u => (typeof u === "string" && /^fs:[A-Za-z0-9_-]{1,80}$/.test(u) ? u : safeImg(u));
   const num = (v, d = 0) => (typeof v === "number" && isFinite(v) ? v : d);
   const COMMISSION = 0.25;
   const BASE = location.origin + location.pathname.replace(/index\.html$/, "");
@@ -116,7 +118,7 @@
       .filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length)
       .map(x => ({
         id: String(x.id), cat: String(x.cat || "Menú").slice(0, 30), name: String(x.name || ""), desc: String(x.desc || ""),
-        photo: safeUrl(x.photo), soldOut: !!x.soldOut,
+        photo: safePhoto(x.photo), soldOut: !!x.soldOut,
         opts: x.opts.map(o => (Array.isArray(o) ? { label: String(o[1] || ""), detail: String(o[2] || ""), price: num(Number(o[3])) } : { label: String(o.label || ""), detail: String(o.detail || ""), price: num(Number(o.price)) })),
       }));
   }
@@ -149,7 +151,7 @@
     return r.kind === "truck" ? "Fuera de ruta" : "Cerrado";
   }
   function logoHTML(r, cls = "rlogo") {
-    const u = safeUrl(r && r.logoUrl);
+    const u = safeImg(r && r.logoUrl);
     return `<span class="${cls}">${u ? `<img src="${esc(u)}" alt="" loading="lazy">` : esc(initials(r && r.name))}</span>`;
   }
 
@@ -164,7 +166,7 @@
     return m;
   }
   const pinIcon = (r, cls = "") => L.divIcon({ className: "", iconSize: [38, 38], iconAnchor: [19, 38], popupAnchor: [0, -36],
-    html: `<div class="pin ${cls}">${safeUrl(r.logoUrl) ? `<img src="${esc(safeUrl(r.logoUrl))}" alt="">` : `<span>${esc(initials(r.name))}</span>`}</div>` });
+    html: `<div class="pin ${cls}">${safeImg(r.logoUrl) ? `<img src="${esc(safeImg(r.logoUrl))}" alt="">` : `<span>${esc(initials(r.name))}</span>`}</div>` });
   const meIcon = () => L.divIcon({ className: "", iconSize: [16, 16], iconAnchor: [8, 8], html: '<div class="mepin"></div>' });
 
   // ---------------------------------------------------------------- rutas
@@ -424,7 +426,7 @@
         const oi = Math.min(Number(S.pick[m.id] || 0), m.opts.length - 1), o = m.opts[oi], vsel = !!(vr && S.vsel[m.id]);
         const price = o.price - (vsel ? vr.discount : 0);
         return `<article class="item ${m.soldOut ? "sold" : ""} ${m.photo ? "" : "nophoto"}">
-          <div class="ph">${m.photo ? `<img src="${esc(m.photo)}" alt="${esc(m.name)}" loading="lazy">` : ""}</div>
+          <div class="ph">${m.photo && photoSrc(S.rid, m.photo) ? `<img src="${esc(photoSrc(S.rid, m.photo))}" alt="${esc(m.name)}" loading="lazy">` : ""}</div>
           <div class="body">
             <div><h3>${esc(m.name)}${m.soldOut ? ' <span class="sold-tag">Agotado</span>' : ""}</h3>${m.desc ? `<p>${esc(m.desc)}</p>` : ""}</div>
             ${m.opts.length > 1 ? `<div class="opts" role="group" aria-label="Opciones">${m.opts.map((x, j) => `<button data-opt="${esc(m.id)}|${j}" aria-pressed="${j === oi}"><b>${esc(x.label || String.fromCharCode(65 + j))} · ${money(x.price)}</b>${esc(x.detail)}</button>`).join("")}</div>` : (o.detail ? `<p class="hint">${esc(o.detail)}</p>` : "")}
@@ -817,7 +819,7 @@
     const up = S.uploading[m.id];
     return `<div class="me-item ${m.soldOut ? "is-sold" : ""}" data-i="${i}">
       <div class="me-photo">
-        <div class="ph ${m.photo ? "has" : ""}">${up ? "Subiendo…" : m.photo ? `<img src="${esc(m.photo)}" alt="">` : "Sin foto"}</div>
+        <div class="ph ${m.photo ? "has" : ""}">${up ? "Subiendo…" : m.photo ? (photoSrc(S.my.id, m.photo) ? `<img src="${esc(photoSrc(S.my.id, m.photo))}" alt="">` : "Cargando…") : "Sin foto"}</div>
         <label for="mf-${esc(m.id)}">${m.photo ? "Cambiar foto" : "Subir foto"}<input type="file" id="mf-${esc(m.id)}" accept="image/*" data-photo="${i}"></label>
         ${m.photo ? `<button data-me="nophoto">Quitar foto</button>` : ""}
       </div>
@@ -845,10 +847,11 @@
     if (bad) { const e = $(bad); if (e) { e.classList.add("bad"); e.scrollIntoView({ block: "center" }); e.focus(); } S.meMsg = "Revisa el campo marcado en rojo: falta el nombre, la opción o el precio no es válido."; S.meMsgCls = "err"; meBar(); return; }
     if (Object.keys(S.uploading).length) { S.meMsg = "Espera a que terminen de subir las fotos."; S.meMsgCls = "err"; meBar(); return; }
     const items = D.map(m => ({ id: m.id, cat: String(m.cat || "Platillos").trim().slice(0, 30) || "Platillos", name: m.name.trim().slice(0, 60), desc: String(m.desc || "").trim().slice(0, 200),
-      photo: safeUrl(m.photo), soldOut: !!m.soldOut, opts: m.opts.map(o => ({ label: String(o.label || "").trim().slice(0, 30), detail: String(o.detail || "").trim().slice(0, 40), price: Math.round(Number(o.price) * 100) / 100 })) }));
+      photo: safePhoto(m.photo), soldOut: !!m.soldOut, opts: m.opts.map(o => ({ label: String(o.label || "").trim().slice(0, 30), detail: String(o.detail || "").trim().slice(0, 40), price: Math.round(Number(o.price) * 100) / 100 })) }));
     S.meSaving = true; S.meMsg = "Guardando…"; S.meMsgCls = ""; meBar();
     try {
       await db.doc(`restaurants/${S.my.id}/menu/main`).set({ items, updatedAt: Date.now() });
+      cleanPhotos(items);
       const variant = C.vLabel.trim() ? { label: C.vLabel.trim().slice(0, 30), discount: Math.round(vd * 100) / 100 } : null;
       await db.doc(`restaurants/${S.my.id}`).update({ menuNote: C.menuNote.trim().slice(0, 140), variant, updatedAt: Date.now() });
       S.meDirty = false; S.meSaving = false; S.meDraft = null; S.meCfg = null; S.aiCheck = false; S.aiMsg = ""; S.meMsg = "Guardado. Los clientes ya ven el menú nuevo."; S.meMsgCls = "ok";
@@ -959,12 +962,71 @@ Reglas:
     if (c === "storage/quota-exceeded") return "Se llenó el espacio de fotos de Firebase. (storage/quota-exceeded)";
     return `No se pudo subir la foto. ${c ? "(" + c + ")" : ""}`.trim();
   }
+  // Plan gratuito de Firebase: las fotos se guardan comprimidas en Firestore (restaurants/{id}/photos/{foto}).
+  // Cada documento de Firestore admite hasta 1 MB, así que cada foto se reduce a unos 150 KB como máximo.
+  async function toDataUrl(file, max, maxChars) {
+    if (!file || !/^image\//.test(file.type || "image/")) throw new Error("tipo");
+    if (file.size > 25 * 1024 * 1024) throw new Error("grande");
+    let src;
+    try { src = await createImageBitmap(file); }
+    catch (e) { try { src = await new Promise((res, rej) => { const img = new Image(); img.onload = () => res(img); img.onerror = rej; img.src = URL.createObjectURL(file); }); } catch (e2) { throw new Error("imagen"); } }
+    let size = max, q = 0.8, out = "";
+    for (let tries = 0; tries < 8; tries++) {
+      const k = Math.min(1, size / Math.max(src.width, src.height));
+      const c = document.createElement("canvas"); c.width = Math.max(1, Math.round(src.width * k)); c.height = Math.max(1, Math.round(src.height * k));
+      const ctx = c.getContext("2d"); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, c.width, c.height); ctx.drawImage(src, 0, 0, c.width, c.height);
+      out = c.toDataURL("image/jpeg", q);
+      if (out.length <= maxChars) return out;
+      if (q > 0.55) q -= 0.1; else size = Math.round(size * 0.8);
+    }
+    if (out.length <= maxChars) return out;
+    throw new Error("grande");
+  }
+  const photoCache = {}, photoSubs = {};
+  function watchPhotos(rid) {
+    if (!rid || photoSubs[rid]) return;
+    photoSubs[rid] = db.collection(`restaurants/${rid}/photos`).onSnapshot(snap => {
+      snap.docs.forEach(d => { const v = d.data(); photoCache[`${rid}/${d.id}`] = safeImg(v && v.data); });
+      if (S.route.name === "rest" && S.rid === rid) paint(renderRest);
+      if (S.route.name === "panel" && S.my && S.my.id === rid && S.ktab === "menu") paint(renderMenuEd);
+    }, err => console.error("OnRoute: fotos", err));
+  }
+  function photoSrc(rid, ref) {
+    if (!ref) return "";
+    if (ref.startsWith("fs:")) { watchPhotos(rid); return photoCache[`${rid}/${ref.slice(3)}`] || ""; }
+    return ref;
+  }
+  async function savePhoto(file, itemId) {
+    const data = await toDataUrl(file, 900, 190000);
+    const pid = `${String(itemId).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 30)}-${Date.now().toString(36)}`;
+    photoCache[`${S.my.id}/${pid}`] = data;
+    await db.doc(`restaurants/${S.my.id}/photos/${pid}`).set({ data, createdAt: Date.now() });
+    return "fs:" + pid;
+  }
+  async function cleanPhotos(items) {
+    // Borra las fotos que ya no usa ningún platillo (para no gastar espacio del plan gratuito).
+    try {
+      const used = new Set(items.map(m => m.photo).filter(p => p && p.startsWith("fs:")).map(p => p.slice(3)));
+      const snap = await db.collection(`restaurants/${S.my.id}/photos`).get();
+      for (const d of snap.docs) if (!used.has(d.id) && Date.now() - num(d.data().createdAt) > 60000) await db.doc(`restaurants/${S.my.id}/photos/${d.id}`).delete();
+    } catch (e) { console.warn("OnRoute: limpiar fotos", e); }
+  }
+  function photoErr(e) {
+    const m = (e && e.message) || "", c = (e && e.code) || "";
+    console.error("OnRoute: foto", c, m, e);
+    if (m === "tipo") return "Ese archivo no es una imagen. Usa una foto JPG o PNG.";
+    if (m === "grande") return "La foto es demasiado grande. Prueba con otra foto.";
+    if (m === "imagen") return "No pudimos leer esa foto. Prueba con una foto JPG o PNG.";
+    if (c === "permission-denied") return "Firebase no dio permiso para guardar la foto. Revisa que publicaste las reglas nuevas de Firestore.";
+    return "No se pudo guardar la foto. Revisa tu conexión e intenta otra vez.";
+  }
   async function onPhoto(input) {
     const i = Number(input.dataset.photo), m = S.meDraft[i], file = input.files && input.files[0];
+    input.value = "";
     if (!m || !file) return;
     S.uploading[m.id] = true; paint(renderMenuEd);
-    try { m.photo = await uploadImage(file, "plato-" + m.id, 1200); meTouch(); }
-    catch (e) { const msg = upErr(e); S.meMsg = msg; S.meMsgCls = "err"; toast(msg); }
+    try { m.photo = await savePhoto(file, m.id); meTouch(); }
+    catch (e) { const msg = photoErr(e); S.meMsg = msg; S.meMsgCls = "err"; toast(msg); }
     delete S.uploading[m.id]; paint(renderMenuEd); if (S.meDirty) meTouch();
   }
 
@@ -1031,8 +1093,8 @@ Reglas:
       $("#pfLogoIn").addEventListener("change", async e => {
         const f = e.target.files && e.target.files[0]; if (!f) return;
         $("#pfLogo").innerHTML = `<span class="rlogo">…</span>`; S.pfMsg = "Subiendo logo…"; paint(renderProf);
-        try { const url = await uploadImage(f, "logo", 512); await db.doc(`restaurants/${R.id}`).update({ logoUrl: url, updatedAt: Date.now() }); S.pfMsg = "Logo actualizado."; toast("Logo actualizado."); }
-        catch (err) { S.pfMsg = upErr(err); toast("No se pudo subir el logo."); }
+        try { const url = await toDataUrl(f, 256, 45000); await db.doc(`restaurants/${R.id}`).update({ logoUrl: url, updatedAt: Date.now() }); S.pfMsg = "Logo actualizado."; toast("Logo actualizado."); }
+        catch (err) { S.pfMsg = photoErr(err); toast("No se pudo subir el logo."); }
         e.target.value = ""; paint(renderProf);
       });
       if (P.kind === "restaurant") setTimeout(drawPfMap, 30);
