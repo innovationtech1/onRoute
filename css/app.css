@@ -611,3 +611,10 @@ body[data-app="panel"] .top,body[data-app="admin"] .top{--surface:#0F1E33;--surf
 .sg-help{font-size:13px;color:var(--muted)}.sg-help summary{cursor:pointer;font-weight:700;color:var(--fg)}
 .sg-help ul{margin:8px 0 0;padding-left:18px;display:flex;flex-direction:column;gap:6px}
 @media (max-width:420px){.sg-bar em{font-size:10px}}
+
+/* Aviso de pedido listo (cliente) */
+.notif{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:14px;background:var(--surface-2);border:1px solid var(--line);font-size:14px;text-align:left;margin:4px 0 12px}
+.notif span{flex:1;min-width:0}
+.notif.on{border-color:color-mix(in srgb,#22C55E 55%,transparent);background:color-mix(in srgb,#22C55E 10%,var(--surface))}
+.notif.ask{border-color:color-mix(in srgb,#F59E0B 60%,transparent)}
+.notif .btn{flex-shrink:0}

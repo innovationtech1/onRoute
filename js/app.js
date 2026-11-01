@@ -411,7 +411,12 @@
     if (mineUnsub) mineUnsub();
     const rid = S.rid, id = S.myOrder; S.mineReady = false;
     mineUnsub = db.doc(`restaurants/${rid}/orders/${id}`).onSnapshot(
-      d => { S.mine = d.exists ? { id: d.id, ...d.data() } : null; S.mineReady = true; paint(renderRest); },
+      d => {
+        const prev = S.mine && S.mine.id === id ? S.mine.status : null;
+        S.mine = d.exists ? { id: d.id, ...d.data() } : null; S.mineReady = true;
+        if (S.mine && S.mine.status === "ready" && prev && prev !== "ready") readyAlert(S.mine);
+        paint(renderRest);
+      },
       () => { S.mine = null; S.mineReady = true; paint(renderRest); }
     );
   }
@@ -587,6 +592,7 @@
     return `<div class="status">
       <h2>${st === "ready" ? "¡Tu pedido está listo!" : st === "done" ? "¡Buen provecho!" : "Gracias, " + esc(o.who)}</h2>
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Pagas al recoger"}</span></div>
+      ${notifyHTML(o)}
       <ol class="steps">${steps.map((s, i) => { const done = i < idx || (i === 2 && idx >= 2); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`; }).join("")}</ol>
       ${o.note ? `<div class="onote"><b>Tu nota:</b> ${esc(o.note)}</div>` : ""}
       ${o.promo ? `<div class="promo-hint">${I.tag}<span>${esc(o.promo.title || "Promoción")}: ahorraste <b class="mono">${money(o.promo.off)}</b></span></div>` : ""}
@@ -719,6 +725,63 @@
     usersUnsub = db.collection("users").limit(1000).onSnapshot(snap => { S.users = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.usersReady = true; if (S.route.name === "admin") paint(renderAdmin); }, () => { S.usersReady = true; });
   }
   let actx = null;
+  // ---------------------------------------------------------------- aviso de "pedido listo" al cliente
+  // Funciona mientras la página del pedido siga abierta (también en otra pestaña o con la app minimizada,
+  // según el celular). Suena, vibra, cambia el título de la pestaña y, si dio permiso, manda una notificación.
+  const canNotify = () => "Notification" in window && "serviceWorker" in navigator && window.isSecureContext;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || "") || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isStandalone = () => (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  function unlockAudio() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); if (actx.state === "suspended") actx.resume(); } catch (e) {} }
+  function chime() {
+    try {
+      unlockAudio(); const t0 = actx.currentTime;
+      [[0, 784], [0.18, 988], [0.36, 1319], [0.9, 784], [1.08, 988], [1.26, 1319]].forEach(([t, f]) => {
+        const o = actx.createOscillator(), g = actx.createGain(); o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0.0001, t0 + t); g.gain.exponentialRampToValueAtTime(0.25, t0 + t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + t + 0.32);
+        o.connect(g); g.connect(actx.destination); o.start(t0 + t); o.stop(t0 + t + 0.34);
+      });
+    } catch (e) {}
+  }
+  let titleTimer = null; const baseTitle = document.title;
+  function flashTitle(on) {
+    clearInterval(titleTimer); document.title = baseTitle;
+    if (!on) return;
+    let k = 0; titleTimer = setInterval(() => { document.title = k++ % 2 ? baseTitle : "🔔 ¡Tu pedido está listo!"; }, 1000);
+    const stop = () => { if (!document.hidden) { flashTitle(false); document.removeEventListener("visibilitychange", stop); window.removeEventListener("focus", stop); } };
+    document.addEventListener("visibilitychange", stop); window.addEventListener("focus", stop);
+  }
+  async function readyAlert(o) {
+    chime();
+    try { navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 700]); } catch (e) {}
+    if (document.hidden) flashTitle(true);
+    toast(`¡Tu pedido #${o.num} está listo! Pasa a recogerlo.`);
+    if (canNotify() && Notification.permission === "granted") {
+      try {
+        const reg = await navigator.serviceWorker.ready;
+        await reg.showNotification("¡Tu pedido está listo! 🌮", {
+          body: `Pedido #${o.num} en ${S.R ? S.R.name : "el negocio"}. Pasa a recogerlo con tu número.`,
+          icon: "icon-192.png", badge: "icon-192.png", tag: `onroute-ready-${o.id}`, renotify: true, requireInteraction: true,
+          vibrate: [300, 150, 300, 150, 700], data: { url: `${BASE}?r=${S.rid}` },
+        });
+      } catch (e) { console.warn("OnRoute: notificación", e); }
+    }
+  }
+  async function askNotify() {
+    unlockAudio();
+    S.notifAsked = true;
+    if (canNotify() && Notification.permission === "default") { try { await Notification.requestPermission(); } catch (e) {} }
+    ls.set("onroute-notif", 1);
+    paint(renderRest);
+  }
+  function notifyHTML(o) {
+    if (!o || o.status === "ready" || o.status === "done") return "";
+    const perm = canNotify() ? Notification.permission : "na";
+    if (perm === "granted") return `<div class="notif on">🔔<span><b>Te avisamos cuando esté listo.</b> Deja esta página abierta; puedes cambiar de app.</span></div>`;
+    if (isIOS && !isStandalone() && !("Notification" in window)) return `<div class="notif">🔔<span><b>Te avisamos con un sonido</b> cuando esté listo si dejas esta página abierta. Para recibir notificaciones en iPhone, agrega OnRoute a tu pantalla de inicio (Compartir → Agregar a inicio).</span></div>`;
+    if (perm === "denied") return `<div class="notif">🔔<span><b>Te avisamos con un sonido</b> cuando esté listo si dejas esta página abierta. (Las notificaciones están bloqueadas en este navegador.)</span></div>`;
+    if (S.notifAsked && perm === "na") return `<div class="notif on">🔔<span><b>Listo, sonará cuando tu pedido esté listo.</b> Deja esta página abierta.</span></div>`;
+    return `<div class="notif ask">🔔<span><b>¿Te avisamos cuando esté listo?</b> Suena y te llega una notificación aunque cambies de app.</span><button class="btn sm" data-act="notify">Avísame</button></div>`;
+  }
   function beep() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.18); } catch (e) {} }
 
   const UA = navigator.userAgent || "";
@@ -1700,6 +1763,8 @@ Reglas:
   }
 
   // ================================================================ eventos
+  // El navegador solo deja sonar audio después de un toque: se prepara con el primero.
+  document.addEventListener("pointerdown", () => { if (S.route.name === "rest") unlockAudio(); }, { passive: true });
   document.addEventListener("click", e => {
     const t = e.target.closest("a,button,[data-act]");
     if (!t) return;
@@ -1724,7 +1789,8 @@ Reglas:
     if (d.act === "repeat") { const L0 = getLast(S.rid); if (!L0) return; S.cart = { ...L0.cart }; if (L0.name && !S.name) S.name = L0.name; S.view = "cart"; paint(renderRest); return; }
     if (d.pickup) { S.pickup = d.pickup; paint(renderRest); return; }
     if (d.paymode) { S.payMode = d.paymode; paint(renderRest); return; }
-    if (d.act === "pay") { placeOrder(); return; }
+    if (d.act === "pay") { unlockAudio(); placeOrder(); return; }
+    if (d.act === "notify") { askNotify(); return; }
     if (d.act === "promo") {
       const c = cleanCode(S.promoInput), p = promosOf(S.R).find(x => x.code && x.code === c);
       S.promoInput = c; S.promoOk = false;
