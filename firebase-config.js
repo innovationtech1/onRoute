@@ -10,3 +10,10 @@ window.FIREBASE_CONFIG = {
   appId: "1:352775036414:web:a896d309aeef40589074af",
   measurementId: "G-2EVG253WCF"
 };
+
+// Servidor de pagos (Cloud Functions). La llave secreta de Stripe NO va aquí: vive en Secret Manager.
+window.ONROUTE_API = "https://us-central1-onroute-a6930.cloudfunctions.net";
+// Se activa cuando el servidor de pagos ya esté desplegado.
+window.ONROUTE_CARD_PAYMENTS = false;
+// true mientras uses las llaves de prueba de Stripe (sk_test_...).
+window.ONROUTE_STRIPE_TEST = true;

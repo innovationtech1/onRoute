@@ -182,6 +182,10 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .o-btn{background:#2A4A7C}}
 .empty{color:var(--muted);font-size:13px;text-align:center;padding:16px 6px}
 .hint{font-size:13px;color:var(--muted);margin:0}
+.paychip{display:inline-block;align-self:flex-start;margin-top:8px;font-size:12px;font-weight:700;border-radius:8px;padding:3px 8px;background:var(--warn-bg);color:var(--warn)}
+.paychip.paid{background:var(--ok-bg);color:var(--ok)}
+.order .paychip{margin-top:0}
+.paynote{font-weight:600;font-size:11px;color:var(--muted)}
 /* Logo OnRoute: la "O" verde es el remolino de la ruta y ocupa el lugar de la letra */
 .logo{display:inline-flex;flex-direction:column;align-items:flex-end;gap:2px;color:var(--fg)}
 .wm-main{display:flex;align-items:baseline;font-family:"Raleway","Avenir Next",system-ui,sans-serif;font-weight:800;font-size:30px;line-height:1;letter-spacing:-.01em;white-space:nowrap}
@@ -1181,6 +1185,21 @@ function ago(t){const m=Math.max(0,Math.round((Date.now()-t)/60000));return m<1?
 const todayStart=()=>{const d=new Date();d.setHours(0,0,0,0);return d.getTime()};
 try{state.myOrder=sessionStorage.getItem("onroute-my")||null}catch(e){}
 if(state.myOrder)state.view="status";
+// Regreso desde la página de pago de Stripe: ?pedido=<id>&pago=ok|cancelado
+(()=>{try{
+  const q=new URLSearchParams(location.search),id=q.get("pedido"),pago=q.get("pago");if(!id||!pago)return;
+  history.replaceState(null,"",location.pathname+location.hash);
+  let pend=null;try{pend=JSON.parse(localStorage.getItem("onroute-pending")||"null")}catch(e){}
+  if(pago==="ok"){
+    state.myOrder=id;state.view="status";
+    try{sessionStorage.setItem("onroute-my",id)}catch(e){}
+    if(pend&&pend.orderId===id){try{localStorage.setItem("onroute-last",JSON.stringify({cart:pend.cart,name:pend.name,at:Date.now()}));localStorage.removeItem("onroute-pending")}catch(e){}}
+  } else {
+    if(pend&&pend.orderId===id){state.cart=pend.cart||{};state.name=pend.name||"";try{localStorage.removeItem("onroute-pending")}catch(e){}}
+    state.view=Object.keys(state.cart).length?"cart":"menu";state.payErr="Cancelaste el pago. Tu pedido sigue en el carrito.";
+    if(window.ONROUTE_API)fetch(window.ONROUTE_API+"/cancelCheckout",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({orderId:id})}).catch(()=>{});
+  }
+}catch(e){}})();
 
 function renderClient(){
   const sc=$("#screen"), bar=$("#cartbar");
@@ -1226,23 +1245,32 @@ function renderClient(){
           </div></div>
         <div class="field"><label for="nameInput">Nombre para el pedido</label>
           <input id="nameInput" placeholder="Ej. Ana" value="${esc(state.name)}" autocomplete="given-name"></div>
+        ${cardOn()?`<div class="field"><label>¿Cómo quieres pagar?</label>
+          <div class="choices">
+            <button data-paymode="card" aria-pressed="${state.payMode==="card"}"><b>Tarjeta ahora</b>Pago seguro con Stripe</button>
+            <button data-paymode="cash" aria-pressed="${state.payMode==="cash"}"><b>Al recoger</b>En el camión</button>
+          </div></div>`:""}
         <div class="totals"><div class="grand"><span>Total (impuesto incluido)</span><span class="mono">${money(tot)}</span></div></div>
         <div class="saving">Pidiendo aquí y no en una app de delivery, Tortas Tortuga se queda con ${money(tot*COMMISSION)} más.</div>
         <p class="err" id="err" ${state.payErr?"":"hidden"}>${esc(state.payErr||"Escribe tu nombre para que te llamen al estar listo.")}</p>
-        <button class="pay" id="payBtn" ${state.paused||state.busy?"disabled":""}>${state.busy?"Enviando…":"Pagar "+money(tot)}</button>
-        <p class="hint" style="font-size:12px;text-align:center">Pago de prueba: no se cobra nada.</p>
+        <button class="pay" id="payBtn" ${state.paused||state.busy?"disabled":""}>${state.busy?(payCard()?"Abriendo pago seguro…":"Enviando…"):payCard()?"Pagar "+money(tot)+" con tarjeta":"Enviar pedido · pagas "+money(tot)+" al recoger"}</button>
+        <p class="hint" style="font-size:12px;text-align:center">${payCard()?(window.ONROUTE_STRIPE_TEST!==false?"Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC.":"Te llevamos a la página de pago segura de Stripe."):"Pagas en efectivo o tarjeta en la ventanilla."}</p>
       </div>`;
   } else {
     bar.hidden=true;
     const o=(state.mineDoc&&state.mineDoc.id===state.myOrder)?state.mineDoc:state.orders.find(x=>x.id===state.myOrder);
     if(!o&&!(state.fb?state.mineLoaded:state.ready)){sc.innerHTML=`<p class="hint">Cargando tu pedido…</p>`;return}
     const st=o?o.status:"done";
+    if(st==="pending"||st==="cancelled"){sc.innerHTML=`<div class="status" style="display:flex;flex-direction:column;gap:16px">
+        <h2>${st==="pending"?"Confirmando tu pago…":"Pago no completado"}</h2>
+        <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${st==="pending"?"En cuanto Stripe confirme, tu pedido entra a la cocina. Tarda unos segundos.":"Este pedido no se cobró y no llegó a la cocina."}</p></div>
+        <button class="ghost" data-go="new">${st==="pending"?"Volver al menú":"Hacer otro pedido"}</button></div>`;return}
     const idx={new:0,prep:1,ready:2,done:3}[st];
     const steps=[["Pedido recibido","La cocina ya lo tiene en su pantalla"],["En preparación","Tu torta se está armando"],["Listo para recoger","Pasa a la ventanilla con tu número"]];
     sc.innerHTML=`
       <div class="status" style="display:flex;flex-direction:column;gap:16px">
         <h2>${st==="ready"?"¡Tu pedido está listo!":st==="done"?"¡Buen provecho!":"Gracias, "+esc(o?o.who:state.name)}</h2>
-        <div class="ticket"><div class="num">#${o?esc(o.num):"—"}</div><p>${o&&o.pickup==="30"?"Pasas en 30 min":"Listo en unos 15 min"} · Tortas Tortuga</p></div>
+        <div class="ticket"><div class="num">#${o?esc(o.num):"—"}</div><p>${o&&o.pickup==="30"?"Pasas en 30 min":"Listo en unos 15 min"} · Tortas Tortuga</p>${o?`<span class="paychip ${o.paid?"paid":""}">${o.paid?"Pagado con tarjeta":"Pagas al recoger"}</span>`:""}</div>
         <ol class="steps">${steps.map((s,i)=>`<li class="${i<idx||(i===idx&&i===2)||st==="done"?"done":i===idx?"now":""}">
           <span class="dot">${i<idx||(i===2&&idx>=2)?"✓":i+1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`).join("")}</ol>
         ${st==="ready"?`<div class="notice"><span><b>Aviso por SMS (en la versión final):</b> "Tortas Tortuga: tu pedido #${o?esc(o.num):""} está listo. Pasa a la ventanilla."</span></div>`:""}
@@ -1295,16 +1323,17 @@ function renderKitchen(){
   renderChart();renderAlerts();renderGpsBar();renderSession();
   const cols=[["new","Nuevos"],["prep","En preparación"],["ready","Listos"]];
   const act={new:"Empezar",prep:"Marcar listo",ready:"Entregado"};
-  const active=state.orders.filter(o=>o.status!=="done");
+  const active=state.orders.filter(o=>["new","prep","ready"].includes(o.status));
   $("#board").innerHTML=cols.map(([k,l])=>{const list=active.filter(o=>o.status===k);return `
     <div class="col"><h3><span>${l}</span><span class="mono">${list.length}</span></h3>
     ${list.length?list.map(o=>`<div class="order ${k} ${o.id===state.myOrder?"mine":""}">
       <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
       <ul>${(o.items||[]).map(it=>{const n=Array.isArray(it)?it[0]:it.name,q=Array.isArray(it)?it[1]:it.qty;return `<li>${Number(q)} × ${esc(n)}</li>`}).join("")}</ul>
       <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup==="30"?" · llega en 30 min":""}</div>
+      <span class="paychip ${o.paid?"paid":""}">${o.paid?"Pagado con tarjeta":"Cobrar al entregar"}</span>
       <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
     :`<div class="empty">${k==="new"&&!state.orders.length?(state.ready?"Aún no hay pedidos. Haz uno desde la app del cliente.":"Cargando…"):"Sin pedidos"}</div>`}</div>`}).join("");
-  const today=state.orders.filter(o=>o.createdAt>=todayStart());
+  const today=state.orders.filter(o=>o.createdAt>=todayStart()&&!["pending","cancelled"].includes(o.status));
   const sales=today.reduce((a,o)=>a+Number(o.total||0),0);
   $("#sOrders").textContent=today.length;
   $("#sSales").textContent="$"+Math.round(sales);
@@ -1419,7 +1448,7 @@ function renderHist(){
   $("#hList").innerHTML=list.length?list.map(o=>`<div class="h-row">
       <time class="mono">${state.hRange==="week"?fmtD(o.createdAt)+"<br>":""}${fmtT(o.createdAt)}</time>
       <div class="who"><b>${esc(o.who)} · #${esc(o.num)}</b><span>${esc(itemsText(o))}</span></div>
-      <span class="amt mono">${money(o.total)}</span></div>`).join("")
+      <span class="amt mono">${money(o.total)}<br><small class="paynote">${o.paid?"Tarjeta":"Al recoger"}</small></span></div>`).join("")
     :`<div class="empty">${q?"Ningún pedido entregado con ese nombre en este periodo.":"Todavía no hay pedidos entregados en este periodo."}</div>`;
 }
 function setKtab(t){
@@ -1438,7 +1467,7 @@ function showPanels(){const t=state.ktab;$("#pBoard").hidden=t!=="board";$("#his
   document.querySelectorAll("#kTabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.ktab===t))}
 function renderChart(){
   const now=new Date(),t0=todayStart(),by={};
-  state.orders.forEach(o=>{if(o.createdAt>=t0){const h=new Date(o.createdAt).getHours();by[h]=(by[h]||0)+Number(o.total||0)}});
+  state.orders.forEach(o=>{if(o.createdAt>=t0&&!["pending","cancelled"].includes(o.status)){const h=new Date(o.createdAt).getHours();by[h]=(by[h]||0)+Number(o.total||0)}});
   const hrs=Object.keys(by).map(Number);
   if(!hrs.length){$("#salesChart").outerHTML=`<div class="chart-empty" id="salesChart">Aún no hay ventas hoy. Aquí verás lo vendido por hora.</div>`;const x=$("#salesXlab");if(x)x.remove();return}
   const end=now.getHours(),start=Math.max(Math.min(...hrs),end-7),list=[];for(let h=start;h<=end;h++)list.push(h);
@@ -1471,13 +1500,28 @@ function setMode(){
   else{t.textContent="Modo local · sin conexión";$("#kHint").textContent="Sin conexión a la base de datos: los pedidos solo se ven en esta pantalla."}
 }
 
+function cardOn(){return !!(state.fb&&window.ONROUTE_CARD_PAYMENTS&&window.ONROUTE_API)}
+function payCard(){return cardOn()&&state.payMode==="card"}
+state.payMode="card";
+async function payWithCard(nm){
+  state.busy=true;render();
+  try{
+    const r=await fetch(window.ONROUTE_API+"/createCheckout",{method:"POST",headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({name:nm,pickup:state.pickup,items:Object.entries(state.cart).map(([key,qty])=>({key,qty}))})});
+    const j=await r.json().catch(()=>({}));
+    if(!r.ok||!j.url)throw new Error(j.error||"No se pudo iniciar el pago.");
+    try{localStorage.setItem("onroute-pending",JSON.stringify({cart:state.cart,name:nm,orderId:j.orderId,at:Date.now()}))}catch(e){}
+    location.href=j.url;
+  }catch(e){console.error("OnRoute: error al iniciar pago",e);state.busy=false;state.payErr=e.message&&e.message!=="Failed to fetch"?e.message:"No se pudo conectar con el pago. Revisa tu conexión o elige Pagar al recoger.";render()}
+}
 async function placeOrder(){
   const nm=($("#nameInput").value||"").trim();
   if(!nm){state.payErr="Escribe tu nombre para que te llamen al estar listo.";render();$("#nameInput").focus();return}
   state.name=nm;state.payErr="";
+  if(payCard())return payWithCard(nm);
   const order={num:"T"+String(Math.floor(100+Math.random()*900)),who:nm.slice(0,40),
     items:Object.entries(state.cart).map(([k,q])=>({name:parse(k).label,qty:q})),total:subtotal(),
-    status:"new",pickup:state.pickup,createdAt:Date.now()};
+    status:"new",pickup:state.pickup,createdAt:Date.now(),pay:"cash"};
   if(state.live){
     state.busy=true;render();
     try{const ref=db.collection("orders").doc();await ref.set(order);state.myOrder=ref.id;if(state.fb)watchMine(ref.id)}
@@ -1509,6 +1553,7 @@ document.addEventListener("click",e=>{
   else if(t.dataset.go==="menu"){state.view="menu"}
   else if(t.dataset.go==="new"){state.view="menu";state.cart={};state.myOrder=null;try{sessionStorage.removeItem("onroute-my")}catch(e){}}
   else if(t.dataset.pick){state.pickup=t.dataset.pick}
+  else if(t.dataset.paymode){state.payMode=t.dataset.paymode}
   else if(t.id==="payBtn"){placeOrder();return}
   else if(t.dataset.adv){advance(t.dataset.adv);return}
   else if(t.dataset.auth){authAction(t.dataset.auth);return}

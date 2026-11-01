@@ -22,8 +22,11 @@ service cloud.firestore {
     match /orders/{id} {
       allow get: if true;
       allow list: if isOwner();
-      allow create: if request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt'])
+      // Desde la página solo se crean pedidos que se pagan al recoger.
+      // Los pedidos con tarjeta los crea el servidor de pagos (Cloud Functions), que no pasa por estas reglas.
+      allow create: if request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay'])
         && request.resource.data.status == 'new'
+        && request.resource.data.pay == 'cash'
         && request.resource.data.who is string && request.resource.data.who.size() <= 40
         && request.resource.data.items is list && request.resource.data.items.size() <= 30
         && request.resource.data.total is number && request.resource.data.total < 1000;
