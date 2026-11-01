@@ -92,7 +92,7 @@ service cloud.firestore {
       match /menu/{doc} {
         allow read: if true;
         allow write: if isOwnerOf(rid)
-          && request.resource.data.keys().hasOnly(['items','updatedAt'])
+          && request.resource.data.keys().hasOnly(['items','extras','updatedAt'])
           && request.resource.data.items is list
           && request.resource.data.items.size() <= 100;
       }
@@ -114,7 +114,8 @@ service cloud.firestore {
         allow list: if isOwnerOf(rid) || isAdmin();
         allow create: if rest(rid).status == 'active'
           && !(('paused' in rest(rid)) && rest(rid).paused == true)
-          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay','uid'])
+          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay','uid','note'])
+          && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200))
           && (!('uid' in request.resource.data) || (signedIn() && request.resource.data.uid == request.auth.uid))
           && request.resource.data.status == 'new'
           && request.resource.data.pay == 'cash'

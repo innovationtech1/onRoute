@@ -118,21 +118,28 @@
       .filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length)
       .map(x => ({
         id: String(x.id), cat: String(x.cat || "Menú").slice(0, 30), name: String(x.name || ""), desc: String(x.desc || ""),
-        photo: safePhoto(x.photo), soldOut: !!x.soldOut,
+        photo: safePhoto(x.photo), soldOut: !!x.soldOut, noExtras: !!x.noExtras,
         opts: x.opts.map(o => (Array.isArray(o) ? { label: String(o[1] || ""), detail: String(o[2] || ""), price: num(Number(o[3])) } : { label: String(o.label || ""), detail: String(o.detail || ""), price: num(Number(o.price)) })),
       }));
   }
+  function normExtras(arr) {
+    return (Array.isArray(arr) ? arr : []).filter(x => x && x.id && String(x.label || "").trim()).slice(0, 20)
+      .map(x => ({ id: String(x.id).replace(/[^A-Za-z0-9_-]/g, "").slice(0, 20), label: String(x.label).slice(0, 30), price: Math.max(0, num(Number(x.price))) }));
+  }
   const variantOf = R => (R && R.variant && R.variant.label && num(R.variant.discount) > 0 ? { label: String(R.variant.label), discount: num(R.variant.discount) } : null);
   const menuCats = menu => { const c = []; menu.forEach(m => { if (!c.includes(m.cat)) c.push(m.cat); }); return c; };
-  function parseKey(k, menu = S.Rmenu, R = S.R) {
-    const [id, oi, v] = k.split("|");
+  // Clave de cada renglón del carrito: platillo|opción|variante|extras (ej. "orig|0|1|agu.que").
+  function parseKey(k, menu = S.Rmenu, R = S.R, extras = S.Rextras) {
+    const [id, oi, v, ex] = k.split("|");
     const m = menu.find(x => x.id === id); if (!m) throw new Error("gone");
     const o = m.opts[Number(oi)]; if (!o) throw new Error("gone");
     const vr = v === "1" ? variantOf(R) : null; if (v === "1" && !vr) throw new Error("gone");
-    const price = Math.round((o.price - (vr ? vr.discount : 0)) * 100) / 100;
-    const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}`;
-    return { m, o, oi: Number(oi), v: !!vr, price, label };
+    const exs = (ex ? ex.split(".") : []).map(eid => { const e = (extras || []).find(x => x.id === eid); if (!e || m.noExtras) throw new Error("gone"); return e; });
+    const price = Math.round((o.price - (vr ? vr.discount : 0) + exs.reduce((a, e) => a + e.price, 0)) * 100) / 100;
+    const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}${exs.length ? " · + " + exs.map(e => e.label).join(", ") : ""}`;
+    return { m, o, oi: Number(oi), v: !!vr, exs, price, label };
   }
+  const itemExtras = m => (m && !m.noExtras ? S.Rextras || [] : []);
   const cartCount = () => Object.values(S.cart).reduce((a, b) => a + b, 0);
   const subtotal = () => Object.entries(S.cart).reduce((a, [k, q]) => { try { return a + parseKey(k).price * q; } catch (e) { return a; } }, 0);
   function pruneCart() { for (const k of Object.keys(S.cart)) { try { const p = parseKey(k); if (p.m.soldOut) delete S.cart[k]; } catch (e) { delete S.cart[k]; } } }
@@ -306,7 +313,7 @@
   let rUnsubs = [], mineUnsub = null, restMap = null, restMarker = null;
   function openRest(rid) {
     closeRest();
-    Object.assign(S, { rid, R: null, Rerr: null, Rmenu: [], RmenuReady: false, cart: {}, pick: {}, vsel: {}, cat: "", view: "menu", payErr: "", busy: false, mine: null, mineReady: false });
+    Object.assign(S, { rid, R: null, Rerr: null, Rmenu: [], Rextras: [], RmenuReady: false, cart: {}, pick: {}, vsel: {}, esel: {}, note: "", cat: "", view: "menu", payErr: "", busy: false, mine: null, mineReady: false });
     S.myOrder = ss.get(`onroute-my-${rid}`) || null;
     if (S.myOrder) S.view = "status";
     handleStripeReturn(rid);
@@ -316,7 +323,7 @@
       () => { S.R = null; S.Rerr = "none"; paint(renderRest); }
     ));
     rUnsubs.push(db.doc(`restaurants/${rid}/menu/main`).onSnapshot(
-      s => { S.Rmenu = normMenu(s.exists ? s.data().items : []); S.RmenuReady = true; pruneCart(); paint(renderRest); },
+      s => { const d = s.exists ? s.data() : {}; S.Rmenu = normMenu(d.items); S.Rextras = normExtras(d.extras); S.RmenuReady = true; pruneCart(); paint(renderRest); },
       () => { S.RmenuReady = true; paint(renderRest); }
     ));
     if (S.myOrder) watchMine();
@@ -424,12 +431,14 @@
       ${R.menuNote ? `<p class="hint">${esc(R.menuNote)}</p>` : ""}
       <div class="menu">${items.map(m => {
         const oi = Math.min(Number(S.pick[m.id] || 0), m.opts.length - 1), o = m.opts[oi], vsel = !!(vr && S.vsel[m.id]);
-        const price = o.price - (vsel ? vr.discount : 0);
+        const xs = itemExtras(m), sel = S.esel[m.id] || [];
+        const price = o.price - (vsel ? vr.discount : 0) + xs.filter(e => sel.includes(e.id)).reduce((a, e) => a + e.price, 0);
         return `<article class="item ${m.soldOut ? "sold" : ""} ${m.photo ? "" : "nophoto"}">
           <div class="ph">${m.photo && photoSrc(S.rid, m.photo) ? `<img src="${esc(photoSrc(S.rid, m.photo))}" alt="${esc(m.name)}" loading="lazy">` : ""}</div>
           <div class="body">
             <div><h3>${esc(m.name)}${m.soldOut ? ' <span class="sold-tag">Agotado</span>' : ""}</h3>${m.desc ? `<p>${esc(m.desc)}</p>` : ""}</div>
             ${m.opts.length > 1 ? `<div class="opts" role="group" aria-label="Opciones">${m.opts.map((x, j) => `<button data-opt="${esc(m.id)}|${j}" aria-pressed="${j === oi}"><b>${esc(x.label || String.fromCharCode(65 + j))} · ${money(x.price)}</b>${esc(x.detail)}</button>`).join("")}</div>` : (o.detail ? `<p class="hint">${esc(o.detail)}</p>` : "")}
+            ${xs.length && !m.soldOut ? `<div class="xtras" role="group" aria-label="Extras"><span class="hint">Extras:</span>${xs.map(e => `<button class="xchip" data-xtra="${esc(m.id)}|${esc(e.id)}" aria-pressed="${sel.includes(e.id)}">+ ${esc(e.label)}${e.price ? ` <b class="mono">${money(e.price)}</b>` : ""}</button>`).join("")}</div>` : ""}
             <div class="row">
               ${vr ? `<label class="vari"><input type="checkbox" id="v-${esc(m.id)}" data-vari="${esc(m.id)}" ${vsel ? "checked" : ""}> ${esc(vr.label)} (−${money(vr.discount)})</label>` : `<span class="price mono">${money(price)}</span>`}
               <button class="addbtn" data-add="${esc(m.id)}" ${closed || m.soldOut ? "disabled" : ""}>${m.soldOut ? "Agotado" : `Agregar · <span class="mono">${money(price)}</span>`}</button>
@@ -445,13 +454,14 @@
         <h2>Tu pedido</h2>
         <p class="hint">${esc(R.name)}</p>
         <div class="lines">${Object.entries(S.cart).map(([k, q]) => { const p = parseKey(k); return `
-          <div class="line"><div class="nm"><b>${esc(p.m.name)}</b><small>${esc([p.m.opts.length > 1 ? p.o.label : "", p.v ? variantOf(R).label : ""].filter(Boolean).join(" · "))}${p.m.opts.length > 1 || p.v ? " · " : ""}<span class="mono">${money(p.price)}</span></small></div>
+          <div class="line"><div class="nm"><b>${esc(p.m.name)}</b><small>${esc([p.m.opts.length > 1 ? p.o.label : "", p.v ? variantOf(R).label : "", p.exs.length ? "+ " + p.exs.map(e => e.label).join(", ") : ""].filter(Boolean).join(" · "))}${p.m.opts.length > 1 || p.v || p.exs.length ? " · " : ""}<span class="mono">${money(p.price)}</span></small></div>
           <div class="qty"><button data-dec="${esc(k)}" aria-label="Quitar uno">−</button><b class="mono">${q}</b><button data-inc="${esc(k)}" aria-label="Agregar uno">+</button></div></div>`; }).join("")}</div>
         <div class="field"><span class="flabel">¿Cuándo pasas por él?</span>
           <div class="choices">
             <button data-pickup="asap" aria-pressed="${S.pickup === "asap"}"><b>Lo antes posible</b>Unos 15 min</button>
             <button data-pickup="30" aria-pressed="${S.pickup === "30"}"><b>En 30 minutos</b>Llego más tarde</button>
           </div></div>
+        <div class="field"><label for="noteInput">Notas para la cocina <span class="hint">(opcional)</span></label><textarea id="noteInput" maxlength="200" rows="2" placeholder="Ej. sin cebolla, salsa aparte">${esc(S.note || "")}</textarea></div>
         <div class="field"><label for="nameInput">Nombre para el pedido</label><input id="nameInput" maxlength="40" placeholder="Ej. Ana" value="${esc(S.name)}" autocomplete="given-name"></div>
         ${cardOn() ? `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices">
             <button data-paymode="card" aria-pressed="${S.payMode === "card"}"><b>Tarjeta ahora</b>Pago seguro con Stripe</button>
@@ -477,6 +487,7 @@
       <h2>${st === "ready" ? "¡Tu pedido está listo!" : st === "done" ? "¡Buen provecho!" : "Gracias, " + esc(o.who)}</h2>
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Pagas al recoger"}</span></div>
       <ol class="steps">${steps.map((s, i) => { const done = i < idx || (i === 2 && idx >= 2); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`; }).join("")}</ol>
+      ${o.note ? `<div class="onote"><b>Tu nota:</b> ${esc(o.note)}</div>` : ""}
       <div class="points"><span>Total del pedido</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
   }
@@ -491,7 +502,7 @@
         const headers = { "Content-Type": "application/json" };
         if (S.user) { try { headers.Authorization = "Bearer " + (await S.user.getIdToken()); } catch (e) {} }
         const r = await fetch(window.ONROUTE_API + "/createCheckout", { method: "POST", headers,
-          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, cart: S.cart, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })) }) });
+          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, note: String(S.note || "").trim().slice(0, 200), cart: S.cart, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })) }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.url) throw new Error(j.error || "No se pudo iniciar el pago.");
         ls.set("onroute-pending", { cart: S.cart, name: nm, orderId: j.orderId, rid, at: Date.now() });
@@ -501,6 +512,7 @@
     }
     const order = { num: "T" + String(Math.floor(100 + Math.random() * 900)), who: nm, items: Object.entries(S.cart).map(([k, q]) => ({ name: parseKey(k).label, qty: q })),
       total: Math.round(subtotal() * 100) / 100, status: "new", pickup: S.pickup, createdAt: Date.now(), pay: "cash" };
+    const note = String(S.note || "").trim().slice(0, 200); if (note) order.note = note;
     if (S.user) order.uid = S.user.uid;
     S.busy = true; paint(renderRest);
     try {
@@ -510,7 +522,7 @@
       ls.set(`onroute-last-${rid}`, { cart: S.cart, name: nm, at: Date.now() });
       if (S.user) db.doc(`users/${S.user.uid}/orders/${ref.id}`).set({ rid, rname: S.R.name, num: order.num, total: order.total, items: order.items, cart: S.cart, pay: "cash", createdAt: order.createdAt })
         .catch(e => console.error("OnRoute: historial", e));
-      S.cart = {}; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
+      S.cart = {}; S.note = ""; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
       const c = $("#client"); if (c) c.scrollTop = 0;
     } catch (e) {
       console.error("OnRoute: pedido", e); S.busy = false;
@@ -589,7 +601,7 @@
         if (S.ordersReady && S.orders.some(o => o.status === "new" && !before.has(o.id))) beep(); S.ordersReady = true; paint(renderPanel); },
       err => { console.error("OnRoute: pedidos", err); S.ordersReady = true; paint(renderPanel); }
     );
-    myMenuUnsub = db.doc(`restaurants/${rid}/menu/main`).onSnapshot(s => { S.myMenu = normMenu(s.exists ? s.data().items : []); S.myMenuReady = true; if (!S.meDirty) { S.meDraft = null; } paint(renderPanel); }, () => { S.myMenuReady = true; paint(renderPanel); });
+    myMenuUnsub = db.doc(`restaurants/${rid}/menu/main`).onSnapshot(s => { const d = s.exists ? s.data() : {}; S.myMenu = normMenu(d.items); S.myExtras = normExtras(d.extras); S.myMenuReady = true; if (!S.meDirty) { S.meDraft = null; } paint(renderPanel); }, () => { S.myMenuReady = true; paint(renderPanel); });
   }
   function watchAll() {
     if (allUnsub) return;
@@ -763,6 +775,7 @@
       ${list.length ? list.map(o => `<div class="order ${k}">
         <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
         <ul>${(o.items || []).map(it => `<li>${num(Number(it.qty))} × ${esc(it.name)}</li>`).join("")}</ul>
+        ${o.note ? `<div class="onote"><b>Nota:</b> ${esc(o.note)}</div>` : ""}
         <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup === "30" ? " · llega en 30 min" : ""}</div>
         <span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Cobrar al entregar"}</span>
         <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
@@ -790,6 +803,7 @@
   const clone = x => JSON.parse(JSON.stringify(x));
   function meEnsure() {
     if (!S.meDraft) S.meDraft = clone(S.myMenu);
+    if (!S.meExtras) S.meExtras = clone(S.myExtras || []);
     if (!S.meCfg) { const v = S.my.variant || {}; S.meCfg = { menuNote: S.my.menuNote || "", vLabel: v.label || "", vDisc: v.discount || "" }; }
   }
   function meTouch() { S.meDirty = true; S.meMsg = "Cambios sin guardar"; S.meMsgCls = "dirty"; meBar(); }
@@ -809,6 +823,12 @@
         <input id="cfgVL" data-cfg="vLabel" maxlength="30" value="${esc(C.vLabel)}" placeholder="Opción con descuento (ej. Sin combo)" aria-label="Opción con descuento">
         <input id="cfgVD" data-cfg="vDisc" type="number" min="0" max="50" step="0.5" value="${esc(C.vDisc)}" placeholder="Descuento $" aria-label="Descuento">
       </div><p class="hint" style="margin-top:8px">La opción con descuento es opcional: aparece como casilla en cada platillo (por ejemplo "Solo torta, −$1").</p></div>
+      <div class="kcard"><h4>Extras con precio</h4>
+        <p class="hint" style="margin-bottom:10px">El cliente los puede agregar a cualquier platillo (por ejemplo "Aguacate extra $1.00" o "Sin cebolla $0"). En cada platillo puedes desactivarlos.</p>
+        <div class="xlist">${S.meExtras.map((e, k) => `<div class="xrow" data-x="${k}"><input id="xl-${k}" data-xf="label" maxlength="30" value="${esc(e.label)}" placeholder="Ej. Aguacate extra" aria-label="Extra">
+          <span class="pr"><input id="xp-${k}" data-xf="price" type="number" inputmode="decimal" min="0" max="50" step="0.25" value="${esc(e.price)}" aria-label="Precio del extra"></span>
+          <button class="me-x" data-me="delx" aria-label="Quitar extra">✕</button></div>`).join("") || `<p class="hint">Todavía no tienes extras.</p>`}</div>
+        <button class="me-chip" data-me="addx" style="margin-top:10px" ${S.meExtras.length >= 20 ? "disabled" : ""}>+ Agregar extra</button></div>
       <div class="me-list">${D.length ? D.map((m, i) => meItemHTML(m, i)).join("") : `<div class="empty-cart"><h2>Tu menú está vacío</h2><p>Agrega tu primer platillo con el botón de abajo.</p></div>`}</div>
       <button class="me-add" data-me="additem">+ Agregar platillo</button>
       <div class="me-bar"><span id="meState"></span><div><button class="btn sec sm" data-me="discard">Descartar</button><button class="btn sm" data-me="save">Guardar cambios</button></div></div>
@@ -833,6 +853,7 @@
           <span class="pr"><input id="me-op-${i}-${j}" class="${S.aiCheck && !(Number(o.price) > 0) ? "bad" : ""}" data-j="${j}" data-of="price" type="number" inputmode="decimal" min="0" max="500" step="0.25" value="${esc(o.price)}" aria-label="Precio"></span>
           <button class="me-x" data-me="delopt" data-j="${j}" aria-label="Quitar opción" ${m.opts.length < 2 ? "disabled" : ""}>✕</button></div>`).join("")}
         <div class="me-foot"><div class="l"><button class="me-chip" data-me="addopt" ${m.opts.length >= 6 ? "disabled" : ""}>+ Opción o tamaño</button>
+          ${(S.meExtras || []).length ? `<button class="me-chip ${m.noExtras ? "on" : ""}" data-me="noextras">${m.noExtras ? "Sin extras · tocar para permitir" : "Permite extras"}</button>` : ""}
           <button class="me-chip ${m.soldOut ? "on" : ""}" data-me="sold">${m.soldOut ? "Agotado · tocar para reactivar" : "Marcar agotado"}</button>
           ${i > 0 ? '<button class="me-chip" data-me="up" aria-label="Subir">↑</button>' : ""}${i < S.meDraft.length - 1 ? '<button class="me-chip" data-me="down" aria-label="Bajar">↓</button>' : ""}</div>
           <button class="me-del" data-me="delitem">Eliminar platillo</button></div>
@@ -844,17 +865,19 @@
     D.forEach((m, i) => { if (!String(m.name).trim()) bad = bad || `#me-name-${i}`; m.opts.forEach((o, j) => { const p = Number(o.price); if (!(p > 0 && p < 500)) bad = bad || `#me-op-${i}-${j}`; if (m.opts.length > 1 && !String(o.label).trim()) bad = bad || `#me-ol-${i}-${j}`; }); });
     const vd = Number(C.vDisc);
     if (C.vLabel.trim() && !(vd > 0 && vd < 50)) bad = bad || "#cfgVD";
+    (S.meExtras || []).forEach((e, k) => { if (!String(e.label).trim()) bad = bad || `#xl-${k}`; const p = Number(e.price); if (!(p >= 0 && p <= 50) || e.price === "") bad = bad || `#xp-${k}`; });
     if (bad) { const e = $(bad); if (e) { e.classList.add("bad"); e.scrollIntoView({ block: "center" }); e.focus(); } S.meMsg = "Revisa el campo marcado en rojo: falta el nombre, la opción o el precio no es válido."; S.meMsgCls = "err"; meBar(); return; }
     if (Object.keys(S.uploading).length) { S.meMsg = "Espera a que terminen de subir las fotos."; S.meMsgCls = "err"; meBar(); return; }
     const items = D.map(m => ({ id: m.id, cat: String(m.cat || "Platillos").trim().slice(0, 30) || "Platillos", name: m.name.trim().slice(0, 60), desc: String(m.desc || "").trim().slice(0, 200),
-      photo: safePhoto(m.photo), soldOut: !!m.soldOut, opts: m.opts.map(o => ({ label: String(o.label || "").trim().slice(0, 30), detail: String(o.detail || "").trim().slice(0, 40), price: Math.round(Number(o.price) * 100) / 100 })) }));
+      photo: safePhoto(m.photo), soldOut: !!m.soldOut, noExtras: !!m.noExtras, opts: m.opts.map(o => ({ label: String(o.label || "").trim().slice(0, 30), detail: String(o.detail || "").trim().slice(0, 40), price: Math.round(Number(o.price) * 100) / 100 })) }));
     S.meSaving = true; S.meMsg = "Guardando…"; S.meMsgCls = ""; meBar();
     try {
-      await db.doc(`restaurants/${S.my.id}/menu/main`).set({ items, updatedAt: Date.now() });
+      const extras = (S.meExtras || []).map(e => ({ id: e.id, label: String(e.label).trim().slice(0, 30), price: Math.round(Number(e.price) * 100) / 100 }));
+      await db.doc(`restaurants/${S.my.id}/menu/main`).set({ items, extras, updatedAt: Date.now() });
       cleanPhotos(items);
       const variant = C.vLabel.trim() ? { label: C.vLabel.trim().slice(0, 30), discount: Math.round(vd * 100) / 100 } : null;
       await db.doc(`restaurants/${S.my.id}`).update({ menuNote: C.menuNote.trim().slice(0, 140), variant, updatedAt: Date.now() });
-      S.meDirty = false; S.meSaving = false; S.meDraft = null; S.meCfg = null; S.aiCheck = false; S.aiMsg = ""; S.meMsg = "Guardado. Los clientes ya ven el menú nuevo."; S.meMsgCls = "ok";
+      S.meDirty = false; S.meSaving = false; S.meDraft = null; S.meCfg = null; S.meExtras = null; S.aiCheck = false; S.aiMsg = ""; S.meMsg = "Guardado. Los clientes ya ven el menú nuevo."; S.meMsgCls = "ok";
       paint(renderPanel);
     } catch (e) { console.error("OnRoute: guardar menú", e); S.meSaving = false; S.meMsg = "No se pudo guardar. Revisa la conexión e intenta otra vez."; S.meMsgCls = "err"; meBar(); }
   }
@@ -1363,7 +1386,8 @@ Reglas:
     // Negocio (cliente)
     if (d.cat) { S.cat = d.cat; paint(renderRest); return; }
     if (d.opt) { const [id, j] = d.opt.split("|"); S.pick[id] = Number(j); paint(renderRest); return; }
-    if (d.add) { const m = S.Rmenu.find(x => x.id === d.add); if (!m) return; const k = `${m.id}|${Math.min(Number(S.pick[m.id] || 0), m.opts.length - 1)}|${variantOf(S.R) && S.vsel[m.id] ? 1 : 0}`; S.cart[k] = Math.min(20, (S.cart[k] || 0) + 1); if (S.view === "status") S.view = "menu"; paint(renderRest); return; }
+    if (d.xtra) { const [mid, eid] = d.xtra.split("|"); const cur = S.esel[mid] || []; S.esel[mid] = cur.includes(eid) ? cur.filter(x => x !== eid) : cur.concat(eid); paint(renderRest); return; }
+    if (d.add) { const m = S.Rmenu.find(x => x.id === d.add); if (!m) return; const ex = itemExtras(m).map(e => e.id).filter(id => (S.esel[m.id] || []).includes(id)).sort().join("."); const k = `${m.id}|${Math.min(Number(S.pick[m.id] || 0), m.opts.length - 1)}|${variantOf(S.R) && S.vsel[m.id] ? 1 : 0}${ex ? "|" + ex : ""}`; S.esel[m.id] = []; S.cart[k] = Math.min(20, (S.cart[k] || 0) + 1); if (S.view === "status") S.view = "menu"; paint(renderRest); return; }
     if (d.inc) { S.cart[d.inc] = Math.min(20, (S.cart[d.inc] || 0) + 1); paint(renderRest); return; }
     if (d.dec) { S.cart[d.dec]--; if (S.cart[d.dec] <= 0) delete S.cart[d.dec]; if (!cartCount()) S.view = "menu"; paint(renderRest); return; }
     if (t.id === "cartbar") { S.view = "cart"; paint(renderRest); const c = $("#client"); if (c) c.scrollTop = 0; return; }
@@ -1395,16 +1419,20 @@ Reglas:
     if (d.pfkind) { pfEnsure(); S.pf.kind = d.pfkind; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el cambio."; paint(renderProf); return; }
     if (d.act === "gps") { watchId === null ? startGps() : stopGps(); return; }
     if (d.me) {
+      meEnsure();
       const box = t.closest(".me-item"), i = box ? Number(box.dataset.i) : -1, D = S.meDraft;
       if (d.me === "additem") { D.push({ id: "p" + Date.now().toString(36), cat: D.length ? D[D.length - 1].cat : "Platillos", name: "", desc: "", photo: "", soldOut: false, opts: [{ label: "", detail: "", price: 10 }] }); meTouch(); paint(renderMenuEd); const all = $$("#pMenu .me-item"), last = all[all.length - 1]; if (last) { last.scrollIntoView({ block: "center" }); const n = last.querySelector("[data-f=name]"); if (n) n.focus(); } return; }
       if (d.me === "addopt") { const m = D[i]; m.opts.push({ label: "", detail: "", price: m.opts[m.opts.length - 1].price }); meTouch(); paint(renderMenuEd); return; }
       if (d.me === "delopt") { D[i].opts.splice(Number(d.j), 1); meTouch(); paint(renderMenuEd); return; }
       if (d.me === "sold") { D[i].soldOut = !D[i].soldOut; meTouch(); paint(renderMenuEd); return; }
+      if (d.me === "noextras") { D[i].noExtras = !D[i].noExtras; meTouch(); paint(renderMenuEd); return; }
+      if (d.me === "addx") { S.meExtras.push({ id: "x" + Date.now().toString(36).slice(-6), label: "", price: 1 }); meTouch(); paint(renderMenuEd); const n = $(`#xl-${S.meExtras.length - 1}`); if (n) n.focus(); return; }
+      if (d.me === "delx") { const k = Number(t.closest(".xrow").dataset.x); S.meExtras.splice(k, 1); meTouch(); paint(renderMenuEd); return; }
       if (d.me === "nophoto") { D[i].photo = ""; meTouch(); paint(renderMenuEd); return; }
       if (d.me === "up" && i > 0) { [D[i - 1], D[i]] = [D[i], D[i - 1]]; meTouch(); paint(renderMenuEd); return; }
       if (d.me === "down" && i < D.length - 1) { [D[i + 1], D[i]] = [D[i], D[i + 1]]; meTouch(); paint(renderMenuEd); return; }
       if (d.me === "delitem") { if (d.armed !== "1") { t.dataset.armed = "1"; t.textContent = "Toca otra vez para eliminar"; setTimeout(() => { if (t.isConnected) { t.dataset.armed = ""; t.textContent = "Eliminar platillo"; } }, 4000); return; } D.splice(i, 1); meTouch(); paint(renderMenuEd); return; }
-      if (d.me === "discard") { S.meDraft = null; S.meCfg = null; S.meDirty = false; S.meMsg = ""; S.meMsgCls = ""; S.aiCheck = false; S.aiMsg = ""; paint(renderMenuEd); return; }
+      if (d.me === "discard") { S.meDraft = null; S.meCfg = null; S.meExtras = null; S.meDirty = false; S.meMsg = ""; S.meMsgCls = ""; S.aiCheck = false; S.aiMsg = ""; paint(renderMenuEd); return; }
       if (d.me === "save") { meSave(); return; }
     }
     if (d.range) { S.hRange = d.range; renderRep(); return; }
@@ -1412,9 +1440,11 @@ Reglas:
   document.addEventListener("input", e => {
     const t = e.target, d = t.dataset;
     if (t.id === "nameInput") { S.name = t.value; return; }
+    if (t.id === "noteInput") { S.note = t.value; return; }
     if (d.reg) { S.reg[d.reg] = t.value; if (d.reg === "name") { const s = $(".slug"); if (s) s.textContent = `Tu enlace: ${BASE}?r=${slugify(t.value) || "tu-negocio"}`; } return; }
     if (d.pf) { pfEnsure(); S.pf[d.pf] = t.value; S.pfDirty = true; return; }
     if (d.cfg) { meEnsure(); S.meCfg[d.cfg] = t.value; t.classList.remove("bad"); meTouch(); return; }
+    if (d.xf) { meEnsure(); const k = Number(t.closest(".xrow").dataset.x); S.meExtras[k][d.xf] = t.value; t.classList.remove("bad"); meTouch(); return; }
     const box = t.closest && t.closest(".me-item");
     if (box && S.meDraft) {
       const m = S.meDraft[Number(box.dataset.i)]; if (!m) return;

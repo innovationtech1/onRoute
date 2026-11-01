@@ -20,7 +20,7 @@ const ALLOWED = ["https://innovationtech1.github.io", "http://localhost:5000", "
 // Mismo formato que usa la página: cada platillo con opciones {label, detail, price}.
 function menuFromDb(items) {
   return (items || []).filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length).map(x => ({
-    id: String(x.id), name: String(x.name || ""), soldOut: !!x.soldOut,
+    id: String(x.id), name: String(x.name || ""), soldOut: !!x.soldOut, noExtras: !!x.noExtras,
     opts: x.opts.map(o => ({ label: String(o.label || ""), price: Number(o.price) || 0 })),
   }));
 }
@@ -53,21 +53,24 @@ exports.createCheckout = onRequest(
       // El total se calcula aquí con los precios reales: lo que mande el navegador no cuenta.
       const ms = await db.doc(`restaurants/${rid}/menu/main`).get();
       const menu = menuFromDb(ms.exists ? ms.data().items : []);
+      const extras = (ms.exists && Array.isArray(ms.data().extras) ? ms.data().extras : []).map(e => ({ id: String(e.id), label: String(e.label || ""), price: Math.max(0, Number(e.price) || 0) }));
       const items = [], lineItems = [], cartMap = {};
       let total = 0;
       for (const it of cart) {
-        const [id, oi, v] = String(it.key || "").split("|");
+        const [id, oi, v, ex] = String(it.key || "").split("|");
         const qty = Math.floor(Number(it.qty));
         const m = menu.find(x => x.id === id);
         const o = m && m.opts[Number(oi)];
         const vr = v === "1" ? variant : null;
         if (!m || !o || (v === "1" && !vr) || !(qty >= 1 && qty <= 20)) return res.status(400).json({ error: "Un producto del carrito ya no existe. Recarga el menú." });
         if (m.soldOut) return res.status(409).json({ error: `${m.name} está agotado.` });
-        const price = Math.round((o.price - (vr ? vr.discount : 0)) * 100) / 100;
+        const exs = (ex ? ex.split(".") : []).map(eid => extras.find(e => e.id === eid));
+        if (exs.some(e => !e) || (exs.length && m.noExtras)) return res.status(400).json({ error: "Un extra del carrito ya no existe. Recarga el menú." });
+        const price = Math.round((o.price - (vr ? vr.discount : 0) + exs.reduce((a, e) => a + e.price, 0)) * 100) / 100;
         if (!(price > 0)) return res.status(400).json({ error: "Precio no válido." });
-        const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}`.slice(0, 120);
+        const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}${exs.length ? " · + " + exs.map(e => e.label).join(", ") : ""}`.slice(0, 160);
         items.push({ name: label, qty });
-        cartMap[`${id}|${Number(oi)}|${vr ? 1 : 0}`] = qty;
+        cartMap[`${id}|${Number(oi)}|${vr ? 1 : 0}${ex ? "|" + ex : ""}`] = qty;
         lineItems.push({ quantity: qty, price_data: { currency: "usd", unit_amount: Math.round(price * 100), product_data: { name: label } } });
         total += price * qty;
       }
@@ -77,6 +80,7 @@ exports.createCheckout = onRequest(
       const ref = db.collection(`restaurants/${rid}/orders`).doc();
       const num = "T" + String(Math.floor(100 + Math.random() * 900));
       const order = { num, who, items, total, status: "pending", pickup, pay: "card", paid: false, createdAt: Date.now() };
+      const note = String(body.note || "").trim().slice(0, 200); if (note) order.note = note;
       if (uid) { order.uid = uid; order.cart = cartMap; order.rname = String(R.name || "").slice(0, 60); }
       await ref.set(order);
 
