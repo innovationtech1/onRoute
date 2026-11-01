@@ -105,6 +105,9 @@
     orders: [], ordersReady: false, ktab: "orders", reg: { kind: "truck" }, regMsg: "", regBusy: false,
     meDraft: null, meCfg: null, meDirty: false, meSaving: false, meMsg: "", meMsgCls: "", uploading: {},
     hRange: "today", hq: "", pf: null, pfDirty: false, pfMsg: "", all: [], allReady: false,
+    // Cuentas y roles
+    profile: null, profileReady: false, authRole: null, authName: "", returnTo: null, hist: [], histReady: false, atab: "orders", acctMsg: "",
+    users: [], usersReady: false, admTab: "sum", stats: null, statsBusy: false,
   };
 
   // ---------------------------------------------------------------- menú: normalizar y precios
@@ -168,12 +171,14 @@
   function parseRoute() {
     const h = location.hash.slice(1);
     if (h === "panel" || h === "cocina") return { name: "panel" };
+    if (h === "cuenta" || h === "entrar") return { name: "account" };
+    if (h === "admin") return { name: "admin" };
     const r = new URLSearchParams(location.search).get("r");
     if (r && /^[a-z0-9-]{3,40}$/i.test(r)) return { name: "rest", rid: r.toLowerCase() };
     return { name: "home" };
   }
   function go(name, rid) {
-    const url = name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : `${BASE}#panel`;
+    const url = name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
     if (location.href !== url) history.pushState(null, "", url);
     route();
   }
@@ -184,13 +189,16 @@
     $("#vHome").hidden = r.name !== "home";
     $("#vRest").hidden = r.name !== "rest";
     $("#vPanel").hidden = r.name !== "panel";
-    $("#navHome").setAttribute("aria-current", r.name === "home" ? "page" : "false");
-    $("#navPanel").setAttribute("aria-current", r.name === "panel" ? "page" : "false");
+    $("#vAcct").hidden = r.name !== "account";
+    $("#vAdmin").hidden = r.name !== "admin";
+    renderNav();
     if (r.name !== "rest" && S.rid) closeRest();
     if (r.name === "rest" && (prev.name !== "rest" || prev.rid !== r.rid)) openRest(r.rid);
     if (r.name === "home") { ensureDir(); paint(renderHome); }
-    if (r.name === "panel") { ensurePanel(); paint(renderPanel); }
-    document.title = r.name === "panel" ? "Mi negocio · OnRoute" : r.name === "rest" ? `${S.R ? S.R.name + " · " : ""}OnRoute` : "OnRoute · Comida cerca de ti";
+    if (r.name === "panel") paint(renderPanel);
+    if (r.name === "account") { ensureDir(); paint(renderAccount); }
+    if (r.name === "admin") paint(renderAdmin);
+    document.title = r.name === "panel" ? "Mi negocio · OnRoute" : r.name === "account" ? "Mi cuenta · OnRoute" : r.name === "admin" ? "Administración · OnRoute" : r.name === "rest" ? `${S.R ? S.R.name + " · " : ""}OnRoute` : "OnRoute · Comida cerca de ti";
     setTimeout(() => { [dirMap, restMap, pfMap].forEach(m => { try { m && m.invalidateSize(); } catch (e) {} }); }, 60);
   }
   window.addEventListener("popstate", route);
@@ -378,7 +386,7 @@
     $("#client").dataset.view = S.view;
     $("#rId").innerHTML = `<div class="hero-id">${logoHTML(R)}<div style="min-width:0"><div class="hero-kind">${esc(KIND[R.kind] || "")}${R.cuisine ? " · " + esc(R.cuisine) : ""}</div><h1 class="truck-name">${esc(R.name)}</h1></div></div>
       ${R.description ? `<p class="hero-desc">${esc(R.description)}</p>` : ""}
-      <div class="hero-facts"><span class="chip cdot ${open ? "open" : "closed"}">${esc(openText(R))}</span>${R.phone ? `<span class="chip">${esc(R.phone)}</span>` : ""}${R.status !== "active" ? `<span class="chip">Vista previa · aún no publicado</span>` : ""}</div>`;
+      <div class="hero-facts"><button class="fav" data-act="fav" aria-pressed="${isFav(R.id)}">${isFav(R.id) ? "♥ Guardado" : "♡ Guardar"}</button><span class="chip cdot ${open ? "open" : "closed"}">${esc(openText(R))}</span>${R.phone ? `<span class="chip">${esc(R.phone)}</span>` : ""}${R.status !== "active" ? `<span class="chip">Vista previa · aún no publicado</span>` : ""}</div>`;
     const where = R.kind === "truck" ? (R.loc && R.loc.stop) || "" : R.address || "";
     const when = R.kind === "truck" && R.loc && R.loc.updatedAt ? (truckLive(R) ? "Ubicación en vivo · " : "Última ubicación · ") + ago(R.loc.updatedAt) : R.kind === "truck" ? "Todavía no comparte su ubicación" : "";
     $("#rLoc").innerHTML = `<div><strong>${esc(where || (pos ? "Ubicación" : "Ubicación no disponible"))}</strong><span>${esc([R.loc && R.loc.hours, when].filter(Boolean).join(" · "))}</span></div>
@@ -429,6 +437,7 @@
   }
   function cartHTML() {
     const tot = subtotal(), R = S.R, card = cardOn() && S.payMode === "card", closed = !isOpen(R) || R.status !== "active";
+    if (!S.name && S.profile && S.profile.name) S.name = S.profile.name;
     return `<button class="back m-only" data-act="tomenu">← Seguir pidiendo</button>
       <div class="sheet">
         <h2>Tu pedido</h2>
@@ -449,6 +458,7 @@
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
         <button class="pay" data-act="pay" ${closed || S.busy ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
+        ${S.user ? `<p class="hint" style="text-align:center">Pides como ${esc(S.user.email || "")}. Lo verás en Mis pedidos.</p>` : `<p class="hint" style="text-align:center"><a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para guardar tus pedidos. También puedes pedir sin cuenta.</p>`}
         <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : "Pagas en efectivo o tarjeta al recoger."}</p>
       </div>`;
   }
@@ -476,8 +486,10 @@
     if (cardOn() && S.payMode === "card") {
       S.busy = true; paint(renderRest);
       try {
-        const r = await fetch(window.ONROUTE_API + "/createCheckout", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })) }) });
+        const headers = { "Content-Type": "application/json" };
+        if (S.user) { try { headers.Authorization = "Bearer " + (await S.user.getIdToken()); } catch (e) {} }
+        const r = await fetch(window.ONROUTE_API + "/createCheckout", { method: "POST", headers,
+          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, cart: S.cart, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })) }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.url) throw new Error(j.error || "No se pudo iniciar el pago.");
         ls.set("onroute-pending", { cart: S.cart, name: nm, orderId: j.orderId, rid, at: Date.now() });
@@ -487,12 +499,15 @@
     }
     const order = { num: "T" + String(Math.floor(100 + Math.random() * 900)), who: nm, items: Object.entries(S.cart).map(([k, q]) => ({ name: parseKey(k).label, qty: q })),
       total: Math.round(subtotal() * 100) / 100, status: "new", pickup: S.pickup, createdAt: Date.now(), pay: "cash" };
+    if (S.user) order.uid = S.user.uid;
     S.busy = true; paint(renderRest);
     try {
       const ref = db.collection(`restaurants/${rid}/orders`).doc();
       await ref.set(order);
       S.myOrder = ref.id; ss.set(`onroute-my-${rid}`, ref.id);
       ls.set(`onroute-last-${rid}`, { cart: S.cart, name: nm, at: Date.now() });
+      if (S.user) db.doc(`users/${S.user.uid}/orders/${ref.id}`).set({ rid, rname: S.R.name, num: order.num, total: order.total, items: order.items, cart: S.cart, pay: "cash", createdAt: order.createdAt })
+        .catch(e => console.error("OnRoute: historial", e));
       S.cart = {}; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
       const c = $("#client"); if (c) c.scrollTop = 0;
     } catch (e) {
@@ -503,26 +518,66 @@
   }
 
   // ================================================================ MI NEGOCIO
-  let authUnsub = null, myUnsub = null, ordUnsub = null, myMenuUnsub = null, allUnsub = null, pfMap = null, pfMarker = null;
-  function ensurePanel() {
-    if (authUnsub) return;
+  let authUnsub = null, myUnsub = null, ordUnsub = null, myMenuUnsub = null, allUnsub = null, profUnsub = null, histUnsub = null, usersUnsub = null, pfMap = null, pfMarker = null;
+  // Una sola sesión para toda la app: define el rol (cliente, negocio o administrador).
+  function initAuth() {
     authUnsub = auth.onAuthStateChanged(u => {
-      S.user = u; S.authReady = true; S.isAdmin = false; S.my = null; S.myReady = false; S.authMsg = "";
-      [myUnsub, ordUnsub, myMenuUnsub, allUnsub].forEach(f => { try { f && f(); } catch (e) {} });
-      myUnsub = ordUnsub = myMenuUnsub = allUnsub = null;
+      S.user = u; S.authReady = true; S.isAdmin = false; S.my = null; S.myReady = false; S.profile = null; S.profileReady = false;
+      S.hist = []; S.histReady = false; S.users = []; S.usersReady = false; S.all = []; S.allReady = false; S.stats = null;
+      [myUnsub, ordUnsub, myMenuUnsub, allUnsub, profUnsub, histUnsub, usersUnsub].forEach(f => { try { f && f(); } catch (e) {} });
+      myUnsub = ordUnsub = myMenuUnsub = allUnsub = profUnsub = histUnsub = usersUnsub = null;
       stopGps(true);
       if (u) {
-        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) watchAll(); paint(renderPanel); }).catch(() => {});
+        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) { watchAll(); watchUsers(); } afterAuth(); }).catch(() => afterAuth());
+        profUnsub = db.doc(`users/${u.uid}`).onSnapshot(s => { S.profile = s.exists ? s.data() : null; S.profileReady = true; afterAuth(); }, () => { S.profileReady = true; afterAuth(); });
         myUnsub = db.collection("restaurants").where("ownerUid", "==", u.uid).limit(1).onSnapshot(snap => {
           const d = snap.docs[0], prev = S.my && S.my.id;
           S.my = d ? { id: d.id, ...d.data() } : null; S.myReady = true;
           if (S.my && S.my.id !== prev) watchMine2(S.my.id);
           if (S.my && !S.pfDirty) S.pf = null;
-          paint(renderPanel);
-        }, err => { console.error("OnRoute: mi negocio", err); S.myReady = true; paint(renderPanel); });
+          afterAuth();
+        }, err => { console.error("OnRoute: mi negocio", err); S.myReady = true; afterAuth(); });
+        histUnsub = db.collection(`users/${u.uid}/orders`).orderBy("createdAt", "desc").limit(100).onSnapshot(
+          snap => { S.hist = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.histReady = true; if (S.route.name === "account") paint(renderAccount); },
+          () => { S.histReady = true; });
       }
-      paint(renderPanel);
+      afterAuth();
     });
+  }
+  function roleOf() { if (!S.user) return null; if (S.my) return "business"; return (S.profile && S.profile.role) || null; }
+  let creatingProfile = false;
+  function afterAuth() {
+    const u = S.user;
+    // Primera vez (por ejemplo con Google): crear su perfil con el rol que eligió.
+    if (u && S.profileReady && S.myReady && !S.profile && !creatingProfile) {
+      creatingProfile = true;
+      const role = S.my ? "business" : S.authRole || (S.route.name === "panel" ? "business" : "customer");
+      db.doc(`users/${u.uid}`).set({ role, name: (S.authName || u.displayName || "").trim().slice(0, 60), email: (u.email || "").slice(0, 120), phone: "", favorites: [], createdAt: Date.now() })
+        .catch(e => console.error("OnRoute: perfil", e)).finally(() => { creatingProfile = false; });
+    }
+    // Después de entrar: cada quien a su vista.
+    if (u && S.loginIntent && S.profileReady && S.myReady && roleOf()) {
+      const role = roleOf(), intent = S.loginIntent; S.loginIntent = null;
+      if (S.returnTo) { const t = S.returnTo; S.returnTo = null; go(t.name, t.rid); }
+      else if (role === "business" && intent !== "panel") go("panel");
+      else if (role === "customer" && intent === "panel" && S.authRole !== "business") go("account");
+    }
+    renderNav();
+    const n = S.route.name;
+    if (n === "panel") paint(renderPanel);
+    if (n === "account") paint(renderAccount);
+    if (n === "admin") paint(renderAdmin);
+    if (n === "rest") paint(renderRest);
+  }
+  function renderNav() {
+    const role = roleOf(), n = S.route.name;
+    const nav = $("#topNav"); if (!nav) return;
+    const items = [["home", "Explorar", "./"]];
+    if (!S.user) items.push(["account", "Entrar", "./#cuenta", "cta"]);
+    else if (role === "business") items.push(["panel", "Mi negocio", "./#panel", "cta"]);
+    else items.push(["account", "Mis pedidos", "./#cuenta", "cta"]);
+    if (S.isAdmin) items.push(["admin", "Admin", "./#admin"]);
+    nav.innerHTML = items.map(([k, l, h, c]) => `<a class="tbtn ${c || ""}" href="${h}" data-nav="${k}" aria-current="${n === k ? "page" : "false"}">${l}</a>`).join("");
   }
   function watchMine2(rid) {
     [ordUnsub, myMenuUnsub].forEach(f => { try { f && f(); } catch (e) {} });
@@ -536,7 +591,11 @@
   }
   function watchAll() {
     if (allUnsub) return;
-    allUnsub = db.collection("restaurants").onSnapshot(snap => { S.all = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.allReady = true; paint(renderPanel); }, () => { S.allReady = true; paint(renderPanel); });
+    allUnsub = db.collection("restaurants").onSnapshot(snap => { S.all = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.allReady = true; afterAuth(); }, () => { S.allReady = true; afterAuth(); });
+  }
+  function watchUsers() {
+    if (usersUnsub) return;
+    usersUnsub = db.collection("users").limit(1000).onSnapshot(snap => { S.users = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.usersReady = true; if (S.route.name === "admin") paint(renderAdmin); }, () => { S.usersReady = true; });
   }
   let actx = null;
   function beep() { try { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); const o = actx.createOscillator(), g = actx.createGain(); o.frequency.value = 880; g.gain.value = 0.08; o.connect(g); g.connect(actx.destination); o.start(); o.stop(actx.currentTime + 0.18); } catch (e) {} }
@@ -547,26 +606,33 @@
     "auth/email-already-in-use": "Ya existe una cuenta con ese correo. Usa Entrar.", "auth/weak-password": "La contraseña necesita al menos 6 caracteres.", "auth/invalid-email": "Ese correo no es válido.",
     "auth/missing-password": "Escribe la contraseña.", "auth/popup-closed-by-user": "Cerraste la ventana de Google antes de terminar.", "auth/popup-blocked": "El navegador bloqueó la ventana de Google. Permite ventanas emergentes e intenta otra vez.",
     "auth/unauthorized-domain": "Este dominio no está autorizado en Firebase.", "auth/too-many-requests": "Demasiados intentos. Espera un momento.", "auth/network-request-failed": "Sin conexión. Revisa tu internet." };
+  const repaintAuth = () => { if (S.route.name === "account") paint(renderAccount); else paint(renderPanel); };
   async function authAction(kind) {
     S.authMsg = "";
     const email = (($("#authEmail") || {}).value || "").trim(), pass = ($("#authPass") || {}).value || "";
+    S.authName = (($("#authName") || {}).value || S.authName || "").trim();
+    if (!S.authRole) S.authRole = S.route.name === "panel" ? "business" : "customer";
     try {
+      if (kind === "login" || kind === "signup" || kind === "google") S.loginIntent = S.route.name;
       if (kind === "login") await auth.signInWithEmailAndPassword(email, pass);
-      else if (kind === "signup") await auth.createUserWithEmailAndPassword(email, pass);
+      else if (kind === "signup") {
+        if (!S.authName) { S.loginIntent = null; S.authMsg = "Escribe tu nombre."; repaintAuth(); const n = $("#authName"); if (n) n.focus(); return; }
+        await auth.createUserWithEmailAndPassword(email, pass);
+      }
       else if (kind === "google") await auth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
-      else if (kind === "reset") { if (!email) throw { code: "auth/invalid-email" }; await auth.sendPasswordResetEmail(email); S.authMsg = "Te enviamos un correo para cambiar tu contraseña."; paint(renderPanel); }
-      else if (kind === "logout") { await auth.signOut(); }
-    } catch (e) { S.authMsg = AUTH_ERR[e && e.code] || "No se pudo completar. Intenta otra vez."; paint(renderPanel); }
+      else if (kind === "reset") { if (!email) throw { code: "auth/invalid-email" }; await auth.sendPasswordResetEmail(email); S.authMsg = "Te enviamos un correo para cambiar tu contraseña."; repaintAuth(); }
+      else if (kind === "logout") { S.loginIntent = null; await auth.signOut(); if (S.route.name === "admin") go("home"); }
+    } catch (e) { S.loginIntent = null; S.authMsg = AUTH_ERR[e && e.code] || "No se pudo completar. Intenta otra vez."; repaintAuth(); }
   }
 
   function renderPanel() {
     const v = $("#vPanel");
     let head = `<div class="p-head"><h2>${S.my ? esc(S.my.name) : "Mi negocio"}</h2>${S.my ? statusChip(S.my.status) : ""}<span class="grow"></span>
       ${S.my ? `<a class="btn sec sm" href="./?r=${esc(S.my.id)}" data-rest="${esc(S.my.id)}">Ver mi página</a>` : ""}</div>`;
-    if (!S.authReady || (S.user && !S.myReady)) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
-    if (!S.user) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
+    if (!S.authReady || (S.user && (!S.myReady || !S.profileReady))) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
+    if (!S.user) { if (!S.authRole) S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.my) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${regHTML()}</div></div>`; return; }
-    const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]].concat(S.isAdmin ? [["adm", "Negocios", I.adm]] : []);
+    const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
     if (!tabs.some(t => t[0] === S.ktab)) S.ktab = "orders";
     const key = S.my.id + "|" + tabs.length;
     if (v.dataset.built !== key) {
@@ -577,32 +643,33 @@
           <div class="kpanel scroll narrow" id="pMenu" hidden></div>
           <div class="kpanel scroll narrow" id="pRep" hidden></div>
           <div class="kpanel scroll narrow" id="pProf" hidden></div>
-          <div class="kpanel scroll narrow" id="pAdm" hidden></div>
-          <nav class="knav" id="kNav" role="tablist" aria-label="Secciones" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-ktab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "orders" ? '<i class="badge" id="newBadge" hidden></i>' : ""}${t[0] === "adm" ? '<i class="badge" id="admBadge" hidden></i>' : ""}</button>`).join("")}</nav>
+          <nav class="knav" id="kNav" role="tablist" aria-label="Secciones" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-ktab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "orders" ? '<i class="badge" id="newBadge" hidden></i>' : ""}</button>`).join("")}</nav>
         </div></div>`;
     }
     $("#pHead").innerHTML = head;
     $$("#kNav button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.ktab === S.ktab)));
-    const map = { orders: "#pOrders", menu: "#pMenu", rep: "#pRep", prof: "#pProf", adm: "#pAdm" };
+    const map = { orders: "#pOrders", menu: "#pMenu", rep: "#pRep", prof: "#pProf" };
     Object.entries(map).forEach(([k, sel]) => { const el = $(sel); if (el) el.hidden = k !== S.ktab; });
     const nNew = S.orders.filter(o => o.status === "new").length, nb = $("#newBadge");
     if (nb) { nb.hidden = !nNew; nb.textContent = nNew; }
-    const ab = $("#admBadge"), nPend = S.all.filter(r => r.status === "pending").length;
-    if (ab) { ab.hidden = !nPend; ab.textContent = nPend; }
     if (S.ktab === "orders") renderOrders();
     if (S.ktab === "menu") renderMenuEd();
     if (S.ktab === "rep") renderRep();
     if (S.ktab === "prof") renderProf();
-    if (S.ktab === "adm") renderAdm();
   }
   function statusChip(s) { return s === "active" ? '<span class="chip open cdot">Publicado</span>' : s === "suspended" ? '<span class="chip closed cdot">Suspendido</span>' : '<span class="chip info cdot">En revisión</span>'; }
   function authHTML() {
+    const biz = S.authRole === "business";
     return `<div class="auth">
-      <h3>Tu negocio en OnRoute</h3>
-      <p>Entra o crea tu cuenta para registrar tu food truck o restaurante, subir tu menú con fotos y recibir pedidos directos.</p>
+      <div class="kinds roles" role="group" aria-label="Tipo de cuenta">
+        <button data-authrole="customer" aria-pressed="${!biz}"><b>Quiero pedir comida</b><span>Guarda tus pedidos y favoritos</span></button>
+        <button data-authrole="business" aria-pressed="${biz}"><b>Tengo un negocio</b><span>Food truck o restaurante</span></button></div>
+      <h3>${biz ? "Tu negocio en OnRoute" : "Tu cuenta OnRoute"}</h3>
+      <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
+      <div class="field"><label for="authName">Tu nombre <span class="hint">(solo para crear cuenta)</span></label><input id="authName" autocomplete="name" maxlength="60" value="${esc(S.authName)}" placeholder="Ej. Ana López"></div>
       <div class="field"><label for="authEmail">Correo</label><input id="authEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></div>
       <div class="field"><label for="authPass">Contraseña</label><input id="authPass" type="password" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></div>
-      ${S.authMsg ? `<p class="err" role="alert">${esc(S.authMsg)}</p>` : ""}
+      ${S.authMsg ? `<p class="${/correo para cambiar/.test(S.authMsg) ? "ok-msg" : "err"}" role="alert">${esc(S.authMsg)}</p>` : ""}
       <div class="btns"><button class="btn" data-auth="login">Entrar</button><button class="btn sec" data-auth="signup">Crear cuenta</button><button class="btn sec sm" data-auth="reset" style="margin-left:auto">Olvidé mi contraseña</button></div>
       <div class="or">o</div>
       ${inApp ? `<p class="err">Estás en el navegador de ${inApp}. Google no deja entrar desde aquí: abre OnRoute en Chrome o Safari, o usa correo y contraseña.</p>` : ""}
@@ -614,6 +681,7 @@
     return `<div class="auth">
       <h3>Registra tu negocio</h3>
       <p>Entraste como ${esc(S.user.email || "")}. Llena estos datos; después subes tu menú con fotos. Revisamos cada registro antes de publicarlo.</p>
+      ${roleOf() === "customer" ? `<p class="hint">Tu cuenta es de cliente. Si registras un negocio, tu cuenta pasa a ser de negocio y sigues pudiendo pedir comida. <a href="./#cuenta" data-nav="account">Volver a mis pedidos</a></p>` : ""}
       <div class="field"><span class="flabel">¿Qué tipo de negocio es?</span><div class="kinds">
         <button data-regkind="truck" aria-pressed="${r.kind === "truck"}"><b>Food truck</b><span>Se mueve; comparte su ubicación por GPS</span></button>
         <button data-regkind="restaurant" aria-pressed="${r.kind === "restaurant"}"><b>Restaurante</b><span>Local con dirección fija</span></button></div></div>
@@ -635,7 +703,11 @@
       phone: String(r.phone || "").trim().slice(0, 30), address: String(r.address || "").trim().slice(0, 120), paused: false, ownerUid: S.user.uid, status: "pending", createdAt: Date.now() };
     for (let i = 0; i < 6; i++) {
       const id = i ? `${base.slice(0, 36)}-${i + 1}` : base;
-      try { await db.doc(`restaurants/${id}`).set(data); S.regBusy = false; S.ktab = "menu"; toast("¡Listo! Ahora sube tu menú."); return; }
+      try {
+        await db.doc(`restaurants/${id}`).set(data); S.regBusy = false; S.ktab = "menu"; toast("¡Listo! Ahora sube tu menú.");
+        if (S.profile && S.profile.role !== "business") db.doc(`users/${S.user.uid}`).update({ role: "business" }).catch(() => {});
+        return;
+      }
       catch (e) { if (e && e.code !== "permission-denied") { S.regBusy = false; S.regMsg = "No se pudo crear. Revisa tu conexión e intenta otra vez."; paint(renderPanel); return; } }
     }
     S.regBusy = false; S.regMsg = "Ese nombre ya está en uso. Prueba con otro."; paint(renderPanel);
@@ -948,22 +1020,8 @@
   }
   document.addEventListener("visibilitychange", async () => { if (watchId !== null && document.visibilityState === "visible" && navigator.wakeLock) { try { wakeLock = await navigator.wakeLock.request("screen"); } catch (e) {} } });
 
-  // ---------- Administración (solo Hector)
-  function renderAdm() {
-    const el = $("#pAdm");
-    const order = { pending: 0, active: 1, suspended: 2 };
-    const list = S.all.slice().sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || num(b.createdAt) - num(a.createdAt));
-    el.innerHTML = `<div class="ptitle"><h3>Negocios registrados</h3><p>Aprueba los negocios nuevos para que aparezcan en OnRoute.</p></div>
-      <div class="kcard">${!S.allReady ? `<div class="empty">Cargando…</div>` : !list.length ? `<div class="empty">Todavía no hay negocios.</div>` : list.map(r => `<div class="adm-row">${logoHTML(r)}
-        <div style="min-width:0"><b>${esc(r.name)}</b><span>${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""} · ${esc(r.id)}${r.createdAt ? " · " + new Date(r.createdAt).toLocaleDateString("es-US") : ""}</span></div>
-        <div class="acts">${statusChip(r.status)}<a class="btn sm sec" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">Ver</a>
-          ${r.status !== "active" ? `<button class="btn sm green" data-adm="active" data-id="${esc(r.id)}">Aprobar</button>` : `<button class="btn sm sec" data-adm="suspended" data-id="${esc(r.id)}">Suspender</button>`}</div></div>`).join("")}</div>
-      <div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Datos de la versión anterior</h4>
-        <p class="hint">Copia el menú que tenía Tortas Tortuga en la primera versión de OnRoute (precios, opciones A/B/C y "Solo torta −$1") a tu negocio <b>${esc(S.my.name)}</b>. Reemplaza el menú actual de ese negocio.</p>
-        <button class="btn sec sm" data-act="import" style="align-self:flex-start">Importar menú de Tortas Tortuga</button></div>`;
-  }
   async function setStatus(id, status) {
-    try { await db.doc(`restaurants/${id}`).update({ status }); toast(status === "active" ? "Negocio aprobado y publicado." : "Negocio suspendido."); }
+    try { await db.doc(`restaurants/${id}`).update({ status }); toast(status === "active" ? "Negocio aprobado y publicado." : "Negocio suspendido."); S.stats = null; }
     catch (e) { console.error("OnRoute: estado", e); toast("No se pudo cambiar el estado."); }
   }
   const LEGACY_TT = [
@@ -982,8 +1040,126 @@
       const items = (old.length ? old : LEGACY_TT).map(m => ({ id: m.id, cat: m.cat, name: m.name, desc: m.desc, photo: m.photo || "", soldOut: !!m.soldOut, opts: m.opts }));
       await db.doc(`restaurants/${S.my.id}/menu/main`).set({ items, updatedAt: Date.now() });
       await db.doc(`restaurants/${S.my.id}`).update({ variant: { label: "Solo torta (sin combo)", discount: 1 }, menuNote: "Combo incluye Coca-Cola y Lay's. Precios con impuesto incluido.", updatedAt: Date.now() });
-      S.meDraft = null; S.meCfg = null; S.meDirty = false; S.ktab = "menu"; toast(`Menú importado: ${items.length} platillos.`); paint(renderPanel);
+      S.meDraft = null; S.meCfg = null; S.meDirty = false; S.ktab = "menu"; toast(`Menú importado: ${items.length} platillos.`); go("panel");
     } catch (e) { console.error("OnRoute: importar", e); toast("No se pudo importar el menú."); }
+  }
+
+  // ================================================================ CUENTA DEL CLIENTE
+  const isFav = rid => !!(S.profile && Array.isArray(S.profile.favorites) && S.profile.favorites.includes(rid));
+  async function toggleFav(rid) {
+    if (!S.user) { S.returnTo = { name: "rest", rid }; S.authRole = "customer"; toast("Crea tu cuenta o entra para guardar tus favoritos."); go("account"); return; }
+    const favs = (S.profile && Array.isArray(S.profile.favorites) ? S.profile.favorites : []).filter(x => x !== rid);
+    if (!isFav(rid)) favs.unshift(rid);
+    try { await db.doc(`users/${S.user.uid}`).update({ favorites: favs.slice(0, 50) }); toast(isFav(rid) ? "Quitado de favoritos." : "Guardado en favoritos."); }
+    catch (e) { toast("No se pudo guardar. Revisa la conexión."); }
+  }
+  function renderAccount() {
+    const v = $("#vAcct");
+    if (!S.authReady || (S.user && (!S.profileReady || !S.myReady))) { v.innerHTML = `<div class="empty-box">Cargando…</div>`; return; }
+    if (!S.user) { if (!S.authRole) S.authRole = "customer"; v.innerHTML = `<div class="acct scroll"><div class="acct-in">${authHTML()}</div></div>`; return; }
+    const P = S.profile || {}, role = roleOf();
+    const tabs = [["orders", "Mis pedidos"], ["favs", "Favoritos"], ["data", "Mis datos"]];
+    let body = "";
+    if (S.atab === "orders") {
+      body = !S.histReady ? `<div class="empty-box">Cargando…</div>` : !S.hist.length
+        ? `<div class="empty-cart"><h2>Todavía no tienes pedidos</h2><p>Cuando pidas con tu cuenta, aquí verás tu historial de todos los negocios.</p><p style="margin-top:12px"><a class="btn dark" href="./" data-nav="home">Explorar negocios</a></p></div>`
+        : `<div class="ohist">${S.hist.map(o => `<div class="ocard"><div class="o-h"><b>${esc(o.rname || o.rid)}</b><span class="hint">${new Date(o.createdAt).toLocaleDateString("es-US", { day: "numeric", month: "short" })} · ${new Date(o.createdAt).toLocaleTimeString("es-US", { hour: "numeric", minute: "2-digit" })}</span></div>
+            <p class="hint">#${esc(o.num)} · ${esc((o.items || []).map(it => `${num(Number(it.qty))} × ${it.name}`).join(", "))}</p>
+            <div class="o-f"><span class="mono" style="font-weight:800">${money(o.total)}</span><span class="paychip ${o.pay === "card" ? "paid" : ""}">${o.pay === "card" ? "Tarjeta" : "Al recoger"}</span><span class="grow"></span>
+            <button class="btn sec sm" data-track="${esc(o.rid)}|${esc(o.id)}">Ver estado</button>${o.cart ? `<button class="btn sm" data-again="${esc(o.id)}">Pedir otra vez</button>` : ""}</div></div>`).join("")}</div>`;
+    } else if (S.atab === "favs") {
+      const favs = (P.favorites || []).map(id => S.rests.find(r => r.id === id)).filter(Boolean);
+      body = !S.restsReady ? `<div class="empty-box">Cargando…</div>` : !favs.length
+        ? `<div class="empty-cart"><h2>Sin favoritos todavía</h2><p>Toca "♡ Guardar" en la página de un negocio para tenerlo aquí.</p></div>`
+        : `<div class="cards">${favs.map(r => `<a class="rcard" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">${logoHTML(r)}<div style="min-width:0"><h3>${esc(r.name)}</h3><p class="meta">${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""}</p></div><div class="side"><span class="chip cdot ${isOpen(r) ? "open" : "closed"}">${esc(openText(r))}</span></div></a>`).join("")}</div>`;
+    } else {
+      body = `<div class="kbox"><div class="field"><label for="acName">Nombre</label><input id="acName" maxlength="60" value="${esc(P.name || "")}"></div>
+        <div class="field"><label for="acPhone">Teléfono (opcional)</label><input id="acPhone" maxlength="30" inputmode="tel" value="${esc(P.phone || "")}"></div>
+        <p class="hint">Correo: ${esc(S.user.email || "")}</p>
+        ${S.acctMsg ? `<p class="${/No se pudo/.test(S.acctMsg) ? "err" : "ok-msg"}">${esc(S.acctMsg)}</p>` : ""}
+        <div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="saveacct">Guardar</button><button class="btn sec" data-auth="logout">Cerrar sesión</button></div></div>
+        <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo con esta misma cuenta.</span></div><a class="btn green sm" href="./#panel" data-nav="panel">Registrar mi negocio</a></div>`;
+    }
+    v.innerHTML = `<div class="acct scroll"><div class="acct-in">
+      <div class="acct-head"><div><h1>Hola${P.name ? ", " + esc(P.name.split(" ")[0]) : ""}</h1><p class="hint">${role === "business" ? "Cuenta de negocio" : "Cuenta de cliente"} · ${esc(S.user.email || "")}</p></div>
+        ${role === "business" ? `<a class="btn dark sm" href="./#panel" data-nav="panel">Ir a Mi negocio</a>` : ""}</div>
+      <div class="seg" role="tablist" aria-label="Mi cuenta">${tabs.map(([k, l]) => `<button role="tab" data-atab="${k}" aria-pressed="${S.atab === k}">${l}</button>`).join("")}</div>
+      ${body}</div></div>`;
+  }
+  async function saveAcct() {
+    const name = (($("#acName") || {}).value || "").trim().slice(0, 60), phone = (($("#acPhone") || {}).value || "").trim().slice(0, 30);
+    try { await db.doc(`users/${S.user.uid}`).update({ name, phone }); S.acctMsg = "Datos guardados."; }
+    catch (e) { S.acctMsg = "No se pudo guardar. Revisa la conexión."; }
+    paint(renderAccount);
+  }
+
+  // ================================================================ ADMINISTRACIÓN (solo Hector)
+  function renderAdmin() {
+    const v = $("#vAdmin");
+    const head = `<div class="p-head"><h2>Administración de OnRoute</h2><span class="grow"></span>${S.user ? `<span class="hint">${esc(S.user.email || "")}</span>` : ""}</div>`;
+    if (!S.authReady || (S.user && !S.profileReady)) { v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
+    if (!S.user) { S.authRole = S.authRole || "business"; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
+    if (!S.isAdmin) { v.innerHTML = `<div class="panel">${head}<div class="p-auth"><div class="auth"><h3>Sin acceso</h3><p>Esta sección es solo para el administrador de OnRoute.</p><a class="btn sec" href="./" data-nav="home">Volver al inicio</a></div></div></div>`; return; }
+    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
+    if (v.dataset.built !== "1") {
+      v.dataset.built = "1";
+      v.innerHTML = `<div class="panel">${head}<div class="pbody"><div class="kpanel scroll narrow" id="aBody"></div>
+        <nav class="knav" id="aNav" role="tablist" aria-label="Administración" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-admtab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "biz" ? '<i class="badge" id="pendBadge" hidden></i>' : ""}</button>`).join("")}</nav></div></div>`;
+    }
+    $$("#aNav button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.admtab === S.admTab)));
+    const pend = S.all.filter(r => r.status === "pending"), pb = $("#pendBadge");
+    if (pb) { pb.hidden = !pend.length; pb.textContent = pend.length; }
+    const el = $("#aBody");
+    if (S.admTab === "sum") {
+      const act = S.all.filter(r => r.status === "active"), cust = S.users.filter(u => u.role !== "business");
+      const st = S.stats;
+      el.innerHTML = `<div class="ptitle"><h3>Resumen de la plataforma</h3><p>Números en vivo de OnRoute.</p></div>
+        <div class="tiles four">
+          <div class="tile t-blue"><b class="mono">${act.length}</b><small>Negocios publicados</small></div>
+          <div class="tile t-purple"><b class="mono">${pend.length}</b><small>En revisión</small></div>
+          <div class="tile t-red"><b class="mono">${S.usersReady ? cust.length : "…"}</b><small>Clientes registrados</small></div>
+          <div class="tile t-gold"><b class="mono">${st ? money(st.sales) : "—"}</b><small>Ventas de hoy${st ? ` · ${st.count} pedidos` : ""}</small></div>
+        </div>
+        <div class="kcard"><h4>Ventas de hoy por negocio</h4>${!st ? `<p class="hint">Toca el botón para contar los pedidos de hoy en todos los negocios.</p>` : !st.rows.length ? `<p class="hint">Hoy todavía no hay pedidos.</p>`
+          : st.rows.map(r => `<div class="adm-row">${logoHTML(r.r)}<div style="min-width:0"><b>${esc(r.r.name)}</b><span>${r.count} pedidos</span></div><div class="acts"><b class="mono">${money(r.sales)}</b></div></div>`).join("")}
+          <button class="btn sec sm" data-act="stats" style="margin-top:12px" ${S.statsBusy ? "disabled" : ""}>${S.statsBusy ? "Contando…" : st ? "Actualizar" : "Contar pedidos de hoy"}</button></div>
+        ${pend.length ? `<div class="banner info"><span><b>${pend.length} negocio${pend.length > 1 ? "s" : ""} esperando aprobación.</b></span><button class="btn sm" data-admtab="biz">Revisar</button></div>` : ""}`;
+    } else if (S.admTab === "biz") {
+      const order = { pending: 0, active: 1, suspended: 2 };
+      const list = S.all.slice().sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || num(b.createdAt) - num(a.createdAt));
+      const owner = id => { const u = S.users.find(x => x.id === id); return u ? (u.name || u.email || "") : ""; };
+      el.innerHTML = `<div class="ptitle"><h3>Negocios</h3><p>Aprueba los negocios nuevos para que aparezcan en OnRoute, o suspende los que no cumplan.</p></div>
+        <div class="kcard">${!S.allReady ? `<div class="empty">Cargando…</div>` : !list.length ? `<div class="empty">Todavía no hay negocios.</div>` : list.map(r => `<div class="adm-row">${logoHTML(r)}
+          <div style="min-width:0"><b>${esc(r.name)}</b><span>${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""} · ${esc(r.id)}${owner(r.ownerUid) ? " · " + esc(owner(r.ownerUid)) : ""}${r.createdAt ? " · " + new Date(r.createdAt).toLocaleDateString("es-US") : ""}</span></div>
+          <div class="acts">${statusChip(r.status)}<a class="btn sm sec" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">Ver</a>
+            ${r.status !== "active" ? `<button class="btn sm green" data-adm="active" data-id="${esc(r.id)}">Aprobar</button>` : `<button class="btn sm sec" data-adm="suspended" data-id="${esc(r.id)}">Suspender</button>`}</div></div>`).join("")}</div>`;
+    } else if (S.admTab === "cli") {
+      const list = S.users.slice().sort((a, b) => num(b.createdAt) - num(a.createdAt));
+      el.innerHTML = `<div class="ptitle"><h3>Usuarios registrados</h3><p>${list.filter(u => u.role !== "business").length} clientes · ${list.filter(u => u.role === "business").length} negocios</p></div>
+        <div class="kcard">${!S.usersReady ? `<div class="empty">Cargando…</div>` : !list.length ? `<div class="empty">Todavía no hay usuarios.</div>` : list.map(u => `<div class="adm-row"><span class="rlogo">${esc(initials(u.name || u.email))}</span>
+          <div style="min-width:0"><b>${esc(u.name || "(sin nombre)")}</b><span>${esc(u.email || "")}${u.createdAt ? " · desde " + new Date(u.createdAt).toLocaleDateString("es-US") : ""}</span></div>
+          <div class="acts"><span class="chip ${u.role === "business" ? "info" : ""}">${u.role === "business" ? "Negocio" : "Cliente"}</span></div></div>`).join("")}</div>`;
+    } else {
+      el.innerHTML = `<div class="ptitle"><h3>Herramientas</h3></div>
+        <div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Datos de la versión anterior</h4>
+        ${S.my ? `<p class="hint">Copia el menú que tenía Tortas Tortuga en la primera versión de OnRoute (precios, opciones A/B/C y "Solo torta −$1") a tu negocio <b>${esc(S.my.name)}</b>. Reemplaza el menú actual de ese negocio.</p>
+          <button class="btn sec sm" data-act="import" style="align-self:flex-start">Importar menú de Tortas Tortuga</button>`
+        : `<p class="hint">Primero registra tu negocio en <a href="./#panel" data-nav="panel">Mi negocio</a> para poder importar el menú de Tortas Tortuga.</p>`}</div>`;
+    }
+  }
+  async function loadStats() {
+    S.statsBusy = true; paint(renderAdmin);
+    const t0 = todayStart(), rows = [];
+    try {
+      for (const r of S.all.filter(x => x.status === "active")) {
+        const snap = await db.collection(`restaurants/${r.id}/orders`).where("createdAt", ">=", t0).get();
+        const os = snap.docs.map(d => d.data()).filter(o => o.createdAt >= t0 && !["pending", "cancelled"].includes(o.status));
+        if (os.length) rows.push({ r, count: os.length, sales: os.reduce((a, o) => a + num(o.total), 0) });
+      }
+      rows.sort((a, b) => b.sales - a.sales);
+      S.stats = { rows, count: rows.reduce((a, x) => a + x.count, 0), sales: rows.reduce((a, x) => a + x.sales, 0) };
+    } catch (e) { console.error("OnRoute: estadísticas", e); toast("No se pudieron contar los pedidos."); }
+    S.statsBusy = false; paint(renderAdmin);
   }
 
   // ================================================================ eventos
@@ -1013,6 +1189,15 @@
     if (d.act === "pay") { placeOrder(); return; }
     // Mi negocio
     if (d.auth) { authAction(d.auth); return; }
+    if (d.authrole) { S.authRole = d.authrole; S.authName = (($("#authName") || {}).value || S.authName); S.authMsg = ""; if (S.route.name === "account") paint(renderAccount); else if (S.route.name === "admin") paint(renderAdmin); else paint(renderPanel); return; }
+    if (d.atab) { S.atab = d.atab; S.acctMsg = ""; paint(renderAccount); return; }
+    if (d.act === "saveacct") { saveAcct(); return; }
+    if (d.act === "fav") { toggleFav(S.rid); return; }
+    if (d.act === "loginreturn") { e.preventDefault(); S.returnTo = { name: "rest", rid: S.rid }; S.authRole = "customer"; go("account"); return; }
+    if (d.track) { const [rid, oid] = d.track.split("|"); ss.set(`onroute-my-${rid}`, oid); go("rest", rid); return; }
+    if (d.again) { const o = S.hist.find(x => x.id === d.again); if (o && o.cart) { ls.set(`onroute-last-${o.rid}`, { cart: o.cart, name: (S.profile && S.profile.name) || "", at: o.createdAt }); ss.del(`onroute-my-${o.rid}`); go("rest", o.rid); } return; }
+    if (d.admtab) { S.admTab = d.admtab; paint(renderAdmin); return; }
+    if (d.act === "stats") { loadStats(); return; }
     if (d.regkind) { S.reg.kind = d.regkind; paint(renderPanel); return; }
     if (d.act === "register") { register(); return; }
     if (d.ktab) { S.ktab = d.ktab; if (d.ktab !== "menu") S.meMsg = ""; paint(renderPanel); setTimeout(() => pfMap && pfMap.invalidateSize(), 50); return; }
@@ -1066,5 +1251,6 @@
   if ("serviceWorker" in navigator && location.protocol === "https:") window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   // Enlaces viejos de la primera versión
   if (location.hash === "#cliente") history.replaceState(null, "", BASE + location.search);
+  initAuth();
   route();
 })();

@@ -40,6 +40,33 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+    // ---------- Usuarios (clientes y negocios) ----------
+    // users/{uid}: cada quien lee y edita su perfil; el administrador ve a todos.
+    match /users/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(['role','name','email','phone','favorites','createdAt'])
+        && request.resource.data.role in ['customer','business']
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60;
+      allow update: if signedIn() && request.auth.uid == uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','name','phone','favorites'])
+        && request.resource.data.role in ['customer','business']
+        && request.resource.data.name is string && request.resource.data.name.size() <= 60
+        && request.resource.data.favorites is list && request.resource.data.favorites.size() <= 50;
+      allow delete: if isAdmin();
+
+      // Historial del cliente: una copia de cada pedido que hizo con su cuenta.
+      match /orders/{oid} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create: if signedIn() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['rid','rname','num','total','items','cart','pay','createdAt'])
+          && exists(/databases/$(database)/documents/restaurants/$(request.resource.data.rid)/orders/$(oid));
+        allow delete: if signedIn() && request.auth.uid == uid;
+        allow update: if false;
+      }
+    }
+
     // ---------- Negocios ----------
     // restaurants/{rid}: rid es el enlace del negocio (ej. "tortas-tortuga").
     match /restaurants/{rid} {
@@ -73,10 +100,11 @@ service cloud.firestore {
       // solo el dueño ve la lista y cambia el estado. Los pedidos con tarjeta los crea el servidor.
       match /orders/{oid} {
         allow get: if true;
-        allow list: if isOwnerOf(rid);
+        allow list: if isOwnerOf(rid) || isAdmin();
         allow create: if rest(rid).status == 'active'
           && !(('paused' in rest(rid)) && rest(rid).paused == true)
-          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay'])
+          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay','uid'])
+          && (!('uid' in request.resource.data) || (signedIn() && request.resource.data.uid == request.auth.uid))
           && request.resource.data.status == 'new'
           && request.resource.data.pay == 'cash'
           && request.resource.data.who is string && request.resource.data.who.size() >= 1 && request.resource.data.who.size() <= 40

@@ -6,6 +6,7 @@ const { defineSecret } = require("firebase-functions/params");
 const { logger } = require("firebase-functions");
 const { initializeApp } = require("firebase-admin/app");
 const { getFirestore, FieldValue } = require("firebase-admin/firestore");
+const { getAuth } = require("firebase-admin/auth");
 const Stripe = require("stripe");
 
 initializeApp();
@@ -37,6 +38,10 @@ exports.createCheckout = onRequest(
       if (!who) return res.status(400).json({ error: "Falta el nombre para el pedido." });
       if (!cart.length) return res.status(400).json({ error: "El carrito está vacío." });
 
+      // Si el cliente tiene cuenta, la página manda su token; así el pedido queda en su historial.
+      let uid = null;
+      const m0 = /^Bearer (.+)$/.exec(String(req.headers.authorization || ""));
+      if (m0) { try { uid = (await getAuth().verifyIdToken(m0[1])).uid; } catch (e) { uid = null; } }
       const rid = String(body.rid || "");
       if (!RID.test(rid)) return res.status(400).json({ error: "Negocio no válido." });
       const rs = await db.doc(`restaurants/${rid}`).get();
@@ -48,7 +53,7 @@ exports.createCheckout = onRequest(
       // El total se calcula aquí con los precios reales: lo que mande el navegador no cuenta.
       const ms = await db.doc(`restaurants/${rid}/menu/main`).get();
       const menu = menuFromDb(ms.exists ? ms.data().items : []);
-      const items = [], lineItems = [];
+      const items = [], lineItems = [], cartMap = {};
       let total = 0;
       for (const it of cart) {
         const [id, oi, v] = String(it.key || "").split("|");
@@ -62,6 +67,7 @@ exports.createCheckout = onRequest(
         if (!(price > 0)) return res.status(400).json({ error: "Precio no válido." });
         const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}`.slice(0, 120);
         items.push({ name: label, qty });
+        cartMap[`${id}|${Number(oi)}|${vr ? 1 : 0}`] = qty;
         lineItems.push({ quantity: qty, price_data: { currency: "usd", unit_amount: Math.round(price * 100), product_data: { name: label } } });
         total += price * qty;
       }
@@ -70,14 +76,16 @@ exports.createCheckout = onRequest(
 
       const ref = db.collection(`restaurants/${rid}/orders`).doc();
       const num = "T" + String(Math.floor(100 + Math.random() * 900));
-      await ref.set({ num, who, items, total, status: "pending", pickup, pay: "card", paid: false, createdAt: Date.now() });
+      const order = { num, who, items, total, status: "pending", pickup, pay: "card", paid: false, createdAt: Date.now() };
+      if (uid) { order.uid = uid; order.cart = cartMap; order.rname = String(R.name || "").slice(0, 60); }
+      await ref.set(order);
 
       const stripe = new Stripe(STRIPE_SECRET_KEY.value());
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: lineItems,
         client_reference_id: ref.id,
-        metadata: { rid, orderId: ref.id, num },
+        metadata: { rid, orderId: ref.id, num, uid: uid || "" },
         success_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=ok`,
         cancel_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=cancelado`,
         expires_at: Math.floor(Date.now() / 1000) + 31 * 60,
@@ -111,7 +119,11 @@ exports.stripeWebhook = onRequest(
         const snap = await ref.get();
         if (snap.exists && snap.data().status === "pending") {
           // createdAt se pone en la hora del pago para que el pedido entre arriba en la cocina.
-          await ref.update({ status: "new", paid: true, paidAt: Date.now(), createdAt: Date.now(), paidTotal: (s.amount_total || 0) / 100, paymentIntent: String(s.payment_intent || "") });
+          const now = Date.now(), o = snap.data();
+          await ref.update({ status: "new", paid: true, paidAt: now, createdAt: now, paidTotal: (s.amount_total || 0) / 100, paymentIntent: String(s.payment_intent || "") });
+          if (o.uid) {
+            await db.doc(`users/${o.uid}/orders/${orderId}`).set({ rid, rname: o.rname || rid, num: o.num, total: o.total, items: o.items, cart: o.cart || {}, pay: "card", createdAt: now });
+          }
         }
       } else if (event.type === "checkout.session.expired") {
         const snap = await ref.get();

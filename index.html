@@ -22,10 +22,7 @@
 <body data-app="home">
 <header class="top">
   <a class="logo" href="./" data-nav="home" aria-label="OnRoute by InnovationTECH, inicio"><b class="wm-main"><svg class="logo-o" viewBox="5 5 54 54" aria-hidden="true"><defs><linearGradient id="og1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BE15D"/><stop offset=".55" stop-color="#3DBE6B"/><stop offset="1" stop-color="#17702F"/></linearGradient><mask id="om1"><rect x="0" y="0" width="64" height="64" fill="#fff"/><rect x="30.4" y="0" width="3.2" height="18" fill="#000" transform="rotate(42 32 32)"/></mask></defs><path mask="url(#om1)" fill="url(#og1)" fill-rule="evenodd" d="M32 6A26 26 0 1 1 31.99 6ZM35.5 11A18 18 0 1 0 35.51 11Z"/></svg>nRoute</b><small>by InnovationTECH</small></a>
-  <nav class="top-r" aria-label="Principal">
-    <a class="tbtn" href="./" data-nav="home" id="navHome">Explorar</a>
-    <a class="tbtn cta" href="./#panel" data-nav="panel" id="navPanel">Mi negocio</a>
-  </nav>
+  <nav class="top-r" id="topNav" aria-label="Principal"><a class="tbtn" href="./" data-nav="home">Explorar</a><a class="tbtn cta" href="./#cuenta" data-nav="account">Entrar</a></nav>
 </header>
 <div class="netbar" id="netbar" role="status" hidden>Sin conexión a internet. La app sigue abierta y se pondrá al día cuando vuelva la señal.</div>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
@@ -33,6 +30,8 @@
   <section class="view" id="vHome" aria-label="Negocios cerca de ti"></section>
   <section class="view" id="vRest" aria-label="Menú del negocio" hidden></section>
   <section class="view" id="vPanel" aria-label="Panel de mi negocio" hidden></section>
+  <section class="view" id="vAcct" aria-label="Mi cuenta" hidden></section>
+  <section class="view" id="vAdmin" aria-label="Administración" hidden></section>
 </main>
 <noscript><p class="fatal">OnRoute necesita JavaScript para funcionar.</p></noscript>
 <script src="vendor/leaflet.js"></script>
