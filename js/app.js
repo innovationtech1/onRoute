@@ -920,6 +920,9 @@ Reglas:
         : /timeout/.test(m) ? "El lector de menús tardó demasiado en responder. Intenta otra vez; si se repite, prueba con una sola foto."
         : /Failed to fetch|import|network/i.test(m) ? "No se pudo conectar con el lector de menús. Revisa tu internet e intenta otra vez."
         : "No se pudo leer el menú. Intenta otra vez.";
+      // Detalle técnico corto para poder diagnosticar desde el celular.
+      const det = String((e && (e.customErrorData && JSON.stringify(e.customErrorData.errorDetails || e.customErrorData.status || "")) ) || (e && e.message) || e).replace(/\s+/g, " ").slice(0, 260);
+      S.aiMsg += ` Detalle: ${det}`;
     }
     S.aiBusy = false; paint(renderMenuEd);
   }
