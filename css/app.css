@@ -420,6 +420,14 @@ body[data-app="panel"] .top,body[data-app="admin"] .top{--surface:#0F1E33;--surf
 .adm-row span{font-size:13px;color:var(--muted)}
 .adm-row .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
 
+/* Menú desde foto */
+.ai-card{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:12px;border-color:color-mix(in srgb,var(--ok) 45%,var(--line))}
+.ai-card>div{flex:1;min-width:240px}
+.ai-card h4{margin-bottom:6px}
+.ai-card label svg{width:18px;height:18px}
+.ai-card input[type=file]{display:none}
+.ai-card label.busy{opacity:.7;pointer-events:none}
+.ai-card>p{flex-basis:100%;margin:0}
 /* Cuenta del cliente */
 .acct{height:100%;background:var(--bg)}
 .acct-in{max-width:760px;margin:0 auto;padding:22px max(16px,env(safe-area-inset-right,0px)) 40px max(16px,env(safe-area-inset-left,0px));display:flex;flex-direction:column;gap:16px}

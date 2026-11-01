@@ -799,6 +799,9 @@
     const D = S.meDraft, C = S.meCfg;
     const cats = [...new Set(D.map(m => m.cat).filter(Boolean).concat(["Platillos", "Bebidas", "Postres"]))];
     el.innerHTML = `<div class="ptitle"><h3>Menú</h3><p>Agrega tus platillos con foto, precio y opciones. Los clientes ven los cambios al tocar Guardar.</p></div>
+      <div class="kcard ai-card"><div><h4>Llenar el menú con una foto</h4><p class="hint">Toma foto a tu menú impreso, volante o pizarrón (hasta 4 fotos) y OnRoute escribe los platillos y precios por ti. Después solo revisas y guardas.</p></div>
+        <label class="btn green ${S.aiBusy ? "busy" : ""}" for="aiIn">${ic('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>')}<span>${S.aiBusy ? "Leyendo tu menú…" : "Subir foto del menú"}</span><input type="file" id="aiIn" accept="image/*" multiple ${S.aiBusy ? "disabled" : ""}></label>
+        ${S.aiMsg ? `<p class="${S.aiCls || "hint"}" role="status">${esc(S.aiMsg)}</p>` : ""}</div>
       <div class="kcard"><h4>Ajustes del menú</h4><div class="me-cfg">
         <input id="cfgNote" data-cfg="menuNote" maxlength="140" value="${esc(C.menuNote)}" placeholder="Nota (ej. Combo incluye refresco. Precios con impuesto incluido.)" aria-label="Nota del menú">
         <input id="cfgVL" data-cfg="vLabel" maxlength="30" value="${esc(C.vLabel)}" placeholder="Opción con descuento (ej. Sin combo)" aria-label="Opción con descuento">
@@ -825,7 +828,7 @@
         ${m.opts.map((o, j) => `<div class="me-opt"><span class="code">${String.fromCharCode(65 + j)}</span>
           <input id="me-ol-${i}-${j}" data-j="${j}" data-of="label" value="${esc(o.label)}" maxlength="30" placeholder="${m.opts.length > 1 ? "Opción (ej. Grande)" : "Opción (opcional)"}" aria-label="Opción">
           <input id="me-od-${i}-${j}" data-j="${j}" data-of="detail" value="${esc(o.detail)}" maxlength="40" placeholder="Detalle (opcional)" aria-label="Detalle">
-          <span class="pr"><input id="me-op-${i}-${j}" data-j="${j}" data-of="price" type="number" inputmode="decimal" min="0" max="500" step="0.25" value="${esc(o.price)}" aria-label="Precio"></span>
+          <span class="pr"><input id="me-op-${i}-${j}" class="${S.aiCheck && !(Number(o.price) > 0) ? "bad" : ""}" data-j="${j}" data-of="price" type="number" inputmode="decimal" min="0" max="500" step="0.25" value="${esc(o.price)}" aria-label="Precio"></span>
           <button class="me-x" data-me="delopt" data-j="${j}" aria-label="Quitar opción" ${m.opts.length < 2 ? "disabled" : ""}>✕</button></div>`).join("")}
         <div class="me-foot"><div class="l"><button class="me-chip" data-me="addopt" ${m.opts.length >= 6 ? "disabled" : ""}>+ Opción o tamaño</button>
           <button class="me-chip ${m.soldOut ? "on" : ""}" data-me="sold">${m.soldOut ? "Agotado · tocar para reactivar" : "Marcar agotado"}</button>
@@ -848,9 +851,72 @@
       await db.doc(`restaurants/${S.my.id}/menu/main`).set({ items, updatedAt: Date.now() });
       const variant = C.vLabel.trim() ? { label: C.vLabel.trim().slice(0, 30), discount: Math.round(vd * 100) / 100 } : null;
       await db.doc(`restaurants/${S.my.id}`).update({ menuNote: C.menuNote.trim().slice(0, 140), variant, updatedAt: Date.now() });
-      S.meDirty = false; S.meSaving = false; S.meDraft = null; S.meCfg = null; S.meMsg = "Guardado. Los clientes ya ven el menú nuevo."; S.meMsgCls = "ok";
+      S.meDirty = false; S.meSaving = false; S.meDraft = null; S.meCfg = null; S.aiCheck = false; S.aiMsg = ""; S.meMsg = "Guardado. Los clientes ya ven el menú nuevo."; S.meMsgCls = "ok";
       paint(renderPanel);
     } catch (e) { console.error("OnRoute: guardar menú", e); S.meSaving = false; S.meMsg = "No se pudo guardar. Revisa la conexión e intenta otra vez."; S.meMsgCls = "err"; meBar(); }
+  }
+
+  // ---------- Menú desde una foto (Firebase AI Logic con Gemini)
+  const AI_V = "12.19.0";
+  let aiModel = null;
+  async function menuModel() {
+    if (aiModel) return aiModel;
+    const appm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app.js`);
+    const aim = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-ai.js`);
+    const app = appm.getApps().find(a => a.name === "onroute-ai") || appm.initializeApp(window.FIREBASE_CONFIG, "onroute-ai");
+    const ai = aim.getAI(app, { backend: new aim.GoogleAIBackend() });
+    aiModel = aim.getGenerativeModel(ai, { model: "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json", temperature: 0.1 } });
+    return aiModel;
+  }
+  const MENU_PROMPT = `Transcribe el menú de restaurante que aparece en las fotos. Responde SOLO con JSON, con esta forma exacta:
+{"note":"","items":[{"name":"","category":"","description":"","options":[{"label":"","detail":"","price":0}]}]}
+Reglas:
+- name: nombre del platillo tal como aparece.
+- category: la sección del menú donde está (por ejemplo Tacos, Tortas, Bebidas, Postres). Si no hay secciones, usa "Platillos".
+- description: ingredientes o descripción corta si aparece; si no, vacío.
+- options: si el platillo tiene tamaños, combos o variantes con precio distinto, una opción por cada una, con label (nombre de la variante), detail (información corta, por ejemplo "9 rebanadas") y price. Si tiene un solo precio, una sola opción con label vacío.
+- price: número en dólares, sin el símbolo $. Si no se ve el precio, pon 0.
+- note: una nota general del menú si existe (por ejemplo "Combos incluyen refresco" o "Precios con impuesto incluido"); si no, vacío.
+- No inventes platillos ni precios. Respeta el idioma del menú.`;
+  const blobToB64 = b => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(",")[1]); r.onerror = rej; r.readAsDataURL(b); });
+  async function onMenuPhotos(input) {
+    const files = Array.from(input.files || []).slice(0, 4); input.value = "";
+    if (!files.length) return;
+    meEnsure();
+    S.aiBusy = true; S.aiMsg = `Leyendo ${files.length > 1 ? "tus " + files.length + " fotos" : "tu menú"}… puede tardar unos segundos.`; S.aiCls = ""; paint(renderMenuEd);
+    try {
+      const parts = [MENU_PROMPT];
+      for (const f of files) { let b; try { b = await resizeImage(f, 1600); } catch (e) { b = f; } parts.push({ inlineData: { data: await blobToB64(b), mimeType: b.type || "image/jpeg" } }); }
+      const model = await menuModel();
+      const res = await model.generateContent(parts);
+      const txt = res.response.text();
+      let j = null; try { j = JSON.parse(txt); } catch (e) { const mm = txt.match(/\{[\s\S]*\}/); if (mm) j = JSON.parse(mm[0]); }
+      if (!j || !Array.isArray(j.items)) throw new Error("formato");
+      const t = Date.now().toString(36);
+      const add = j.items.filter(x => x && String(x.name || "").trim()).slice(0, 100 - S.meDraft.length).map((x, i) => {
+        const opts = (Array.isArray(x.options) && x.options.length ? x.options : [{ label: "", detail: "", price: 0 }]).slice(0, 6)
+          .map(o => { const p = Number(o && o.price); return { label: String((o && o.label) || "").slice(0, 30), detail: String((o && o.detail) || "").slice(0, 40), price: p > 0 ? Math.round(p * 100) / 100 : "" }; });
+        return { id: `p${t}${i}`, cat: String(x.category || "Platillos").slice(0, 30), name: String(x.name).trim().slice(0, 60), desc: String(x.description || "").slice(0, 200), photo: "", soldOut: false, opts };
+      });
+      if (!add.length) throw new Error("vacio");
+      S.meDraft.push(...add);
+      if (j.note && !S.meCfg.menuNote) S.meCfg.menuNote = String(j.note).slice(0, 140);
+      const sinPrecio = add.filter(m => m.opts.some(o => o.price === "")).length;
+      S.aiCheck = true; meTouch();
+      S.aiMsg = `Listo: agregamos ${add.length} platillo${add.length > 1 ? "s" : ""} al final de tu menú.${sinPrecio ? (sinPrecio > 1 ? ` ${sinPrecio} no tenían precio visible (marcados en rojo).` : " 1 no tenía precio visible (marcado en rojo).") : ""} Revisa nombres y precios, y toca Guardar cambios.`;
+      S.aiCls = "ok-msg";
+    } catch (e) {
+      console.error("OnRoute: leer menú", e);
+      const m = String((e && e.message) || "") + " " + String((e && e.code) || "");
+      S.aiCls = "err";
+      S.aiMsg = /vacio/.test(m) ? "No encontramos platillos en la foto. Prueba con una foto más cerca, derecha y con buena luz."
+        : /formato/.test(m) ? "No pudimos entender el menú de la foto. Intenta otra vez o con una foto más clara."
+        : /api-not-enabled|not been used|disabled|PERMISSION_DENIED|403|firebasevertexai|firebaseml|generativelanguage/i.test(m) ? "La lectura de menús todavía no está activada en Firebase. Activa Firebase AI Logic (Gemini Developer API) en la consola y vuelve a intentar."
+        : /quota|429|RESOURCE_EXHAUSTED/i.test(m) ? "Se llegó al límite de lecturas por ahora. Espera un minuto e intenta otra vez."
+        : /Failed to fetch|import|network/i.test(m) ? "No se pudo conectar con el lector de menús. Revisa tu internet e intenta otra vez."
+        : "No se pudo leer el menú. Intenta otra vez.";
+    }
+    S.aiBusy = false; paint(renderMenuEd);
   }
 
   // ---------- Fotos
@@ -866,20 +932,39 @@
   }
   async function uploadImage(file, prefix, max) {
     if (!storage) throw new Error("storage");
-    if (!file || !/^image\//.test(file.type)) throw new Error("tipo");
+    if (!file || !/^image\//.test(file.type || "image/")) throw new Error("tipo");
     if (file.size > 25 * 1024 * 1024) throw new Error("grande");
-    const blob = await resizeImage(file, max);
-    const ref = storage.ref(`restaurants/${S.my.id}/${prefix}-${Date.now()}.jpg`);
-    await ref.put(blob, { contentType: "image/jpeg", cacheControl: "public,max-age=31536000" });
+    let blob, type = "image/jpeg", ext = "jpg";
+    try { blob = await resizeImage(file, max); }
+    catch (e) {
+      // Algunos formatos (por ejemplo HEIC de iPhone en Chrome) no se pueden redimensionar aquí: se sube el original si es chico.
+      if (file.size > 3 * 1024 * 1024) throw new Error("imagen");
+      blob = file; type = file.type || "image/jpeg"; ext = (type.split("/")[1] || "jpg").replace(/[^a-z0-9]/g, "");
+    }
+    const ref = storage.ref(`restaurants/${S.my.id}/${prefix}-${Date.now()}.${ext}`);
+    await ref.put(blob, { contentType: type, cacheControl: "public,max-age=31536000" });
     return ref.getDownloadURL();
   }
-  const upErr = e => (e && e.message === "tipo" ? "Ese archivo no es una imagen." : e && e.message === "grande" ? "La foto es demasiado grande." : "No se pudo subir la foto. Revisa que Firebase Storage esté activado e intenta otra vez.");
+  function upErr(e) {
+    const c = (e && e.code) || "", m = (e && e.message) || "";
+    console.error("OnRoute: foto", c, m, e);
+    if (m === "tipo") return "Ese archivo no es una imagen. Usa una foto JPG o PNG.";
+    if (m === "grande") return "La foto es demasiado grande (más de 25 MB).";
+    if (m === "imagen") return "No pudimos leer esa foto. Prueba con una foto JPG o PNG.";
+    if (m === "storage") return "El servicio de fotos no cargó. Recarga la página e intenta otra vez.";
+    if (c === "storage/unauthorized") return "Firebase no dio permiso para subir la foto. Revisa que publicaste las reglas de Storage y que aceptaste el permiso para que Storage lea Firestore. (storage/unauthorized)";
+    if (/bucket-not-found|project-not-found|no-default-bucket|invalid-default-bucket/.test(c) || (c === "storage/unknown" && /404|not found/i.test(m)))
+      return `Firebase Storage no está activado en tu proyecto. Actívalo en la consola de Firebase, en Storage (requiere el plan Blaze). (${c})`;
+    if (/retry-limit|canceled|network/.test(c)) return `Se cortó la conexión al subir la foto. Intenta otra vez. (${c})`;
+    if (c === "storage/quota-exceeded") return "Se llenó el espacio de fotos de Firebase. (storage/quota-exceeded)";
+    return `No se pudo subir la foto. ${c ? "(" + c + ")" : ""}`.trim();
+  }
   async function onPhoto(input) {
     const i = Number(input.dataset.photo), m = S.meDraft[i], file = input.files && input.files[0];
     if (!m || !file) return;
     S.uploading[m.id] = true; paint(renderMenuEd);
     try { m.photo = await uploadImage(file, "plato-" + m.id, 1200); meTouch(); }
-    catch (e) { console.error("OnRoute: foto", e); toast(upErr(e)); }
+    catch (e) { const msg = upErr(e); S.meMsg = msg; S.meMsgCls = "err"; toast(msg); }
     delete S.uploading[m.id]; paint(renderMenuEd); if (S.meDirty) meTouch();
   }
 
@@ -919,7 +1004,7 @@
       el.innerHTML = `<div class="ptitle"><h3>Perfil del negocio</h3><p>Así te ven los clientes en OnRoute.</p></div>
         <div class="pf-grid">
           <div class="kcard" style="display:flex;flex-direction:column;gap:12px">
-            <div class="pf-logo"><span id="pfLogo"></span><div style="display:flex;flex-direction:column;gap:6px"><label class="btn sec sm" for="pfLogoIn">Subir logo<input type="file" id="pfLogoIn" accept="image/*"></label><span class="hint">Cuadrado, se ve mejor.</span></div></div>
+            <div class="pf-logo"><span id="pfLogo"></span><div style="display:flex;flex-direction:column;gap:6px"><label class="btn sec sm" for="pfLogoIn">Subir logo<input type="file" id="pfLogoIn" accept="image/*"></label><span class="hint">Cuadrado, se ve mejor. JPG o PNG.</span></div></div>
             <div class="field"><label for="pf-name">Nombre</label><input id="pf-name" data-pf="name" maxlength="60"></div>
             <div class="field"><span class="flabel">Tipo</span><div class="kinds"><button data-pfkind="truck">Food truck</button><button data-pfkind="restaurant">Restaurante</button></div></div>
             <div class="field"><label for="pf-cuisine">Tipo de comida</label><input id="pf-cuisine" data-pf="cuisine" maxlength="60" placeholder="Ej. Tortas, tacos"></div>
@@ -945,17 +1030,17 @@
       try { const qr = qrcode(0, "M"); qr.addData(link); qr.make(); $("#pfQR").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { $("#pfQR").textContent = "QR no disponible"; }
       $("#pfLogoIn").addEventListener("change", async e => {
         const f = e.target.files && e.target.files[0]; if (!f) return;
-        $("#pfLogo").innerHTML = `<span class="rlogo">…</span>`;
-        try { const url = await uploadImage(f, "logo", 512); await db.doc(`restaurants/${R.id}`).update({ logoUrl: url, updatedAt: Date.now() }); toast("Logo actualizado."); }
-        catch (err) { console.error("OnRoute: logo", err); toast(upErr(err)); }
-        paint(renderProf);
+        $("#pfLogo").innerHTML = `<span class="rlogo">…</span>`; S.pfMsg = "Subiendo logo…"; paint(renderProf);
+        try { const url = await uploadImage(f, "logo", 512); await db.doc(`restaurants/${R.id}`).update({ logoUrl: url, updatedAt: Date.now() }); S.pfMsg = "Logo actualizado."; toast("Logo actualizado."); }
+        catch (err) { S.pfMsg = upErr(err); toast("No se pudo subir el logo."); }
+        e.target.value = ""; paint(renderProf);
       });
       if (P.kind === "restaurant") setTimeout(drawPfMap, 30);
       else { const st = $("#gpsStop"), hr = $("#gpsHours"); if (R.loc) { st.value = R.loc.stop || ""; hr.value = R.loc.hours || ""; } gpsUI(); }
     }
     $$("[data-pfkind]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pfkind === P.kind)));
     $("#pfLogo").innerHTML = logoHTML(R);
-    const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
+    const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta|no dio permiso|no está activado|No pudimos|no cargó|no es una imagen|demasiado grande|Se cortó|Se llenó/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
     const pc = $("#pfCoords"); if (pc) pc.textContent = typeof P.lat === "number" ? `Ubicación marcada (${P.lat.toFixed(4)}, ${P.lng.toFixed(4)})` : "Aún no marcas tu ubicación.";
   }
   function drawPfMap() {
@@ -1218,7 +1303,7 @@
       if (d.me === "up" && i > 0) { [D[i - 1], D[i]] = [D[i], D[i - 1]]; meTouch(); paint(renderMenuEd); return; }
       if (d.me === "down" && i < D.length - 1) { [D[i + 1], D[i]] = [D[i], D[i + 1]]; meTouch(); paint(renderMenuEd); return; }
       if (d.me === "delitem") { if (d.armed !== "1") { t.dataset.armed = "1"; t.textContent = "Toca otra vez para eliminar"; setTimeout(() => { if (t.isConnected) { t.dataset.armed = ""; t.textContent = "Eliminar platillo"; } }, 4000); return; } D.splice(i, 1); meTouch(); paint(renderMenuEd); return; }
-      if (d.me === "discard") { S.meDraft = null; S.meCfg = null; S.meDirty = false; S.meMsg = ""; S.meMsgCls = ""; paint(renderMenuEd); return; }
+      if (d.me === "discard") { S.meDraft = null; S.meCfg = null; S.meDirty = false; S.meMsg = ""; S.meMsgCls = ""; S.aiCheck = false; S.aiMsg = ""; paint(renderMenuEd); return; }
       if (d.me === "save") { meSave(); return; }
     }
     if (d.range) { S.hRange = d.range; renderRep(); return; }
@@ -1241,6 +1326,7 @@
     const t = e.target, d = t.dataset;
     if (d.vari) { S.vsel[d.vari] = t.checked; paint(renderRest); return; }
     if (d.photo !== undefined && t.type === "file") { onPhoto(t); return; }
+    if (t.id === "aiIn") { onMenuPhotos(t); return; }
   });
   document.addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
