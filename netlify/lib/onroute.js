@@ -3,10 +3,9 @@
 //   STRIPE_SECRET_KEY          llave secreta de Stripe (sk_test_... en pruebas)
 //   STRIPE_WEBHOOK_SECRET      secreto del webhook (whsec_...); si hay dos, sepáralos con coma
 //   FIREBASE_SERVICE_ACCOUNT   contenido completo del archivo JSON de la cuenta de servicio de Firebase
-const { initializeApp, getApps, cert } = require("firebase-admin/app");
-const { getFirestore } = require("firebase-admin/firestore");
-const { getAuth } = require("firebase-admin/auth");
-const Stripe = require("stripe");
+// Las librerías se cargan al usarse (no al arrancar): así, si algo falla, la respuesta
+// igual lleva los permisos CORS y la página puede mostrar el motivo.
+const fbApp = () => require("firebase-admin/app");
 
 const SITE = process.env.ONROUTE_SITE || "https://innovationtech1.github.io/onRoute/";
 const ALLOWED = ["https://innovationtech1.github.io", "http://localhost:5056", "http://localhost:5000", "http://127.0.0.1:5000"];
@@ -15,17 +14,19 @@ const RID = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
 let _db = null, _stripe = null;
 function db() {
   if (_db) return _db;
+  const { initializeApp, getApps, cert } = fbApp();
   if (!getApps().length) {
     const raw = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (!raw) throw new Error("Falta FIREBASE_SERVICE_ACCOUNT en Netlify.");
     initializeApp({ credential: cert(JSON.parse(raw)) });
   }
-  _db = getFirestore();
+  _db = require("firebase-admin/firestore").getFirestore();
   return _db;
 }
 function stripe() {
   if (_stripe) return _stripe;
   if (!process.env.STRIPE_SECRET_KEY) throw new Error("Falta STRIPE_SECRET_KEY en Netlify.");
+  const Stripe = require("stripe");
   _stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
   return _stripe;
 }
@@ -70,7 +71,7 @@ async function userOf(event) {
   const m = /^Bearer (.+)$/.exec(String((event.headers && (event.headers.authorization || event.headers.Authorization)) || ""));
   if (!m) return null;
   db();
-  try { return await getAuth().verifyIdToken(m[1]); } catch (e) { return null; }
+  try { return await require("firebase-admin/auth").getAuth().verifyIdToken(m[1]); } catch (e) { return null; }
 }
 
 // ---- Horario (misma lógica que la página) ----
