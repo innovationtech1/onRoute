@@ -50,6 +50,8 @@
     power: ic('<path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>'),
     search: ic('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
     target: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>'),
+    tag: ic('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+    gift: ic('<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v8h14v-8M12 8v13M12 8c-2-4-6-4-6-1.5S10 8 12 8zm0 0c2-4 6-4 6-1.5S14 8 12 8z"/>'),
   };
 
   let toastT = null;
@@ -143,6 +145,39 @@
   const cartCount = () => Object.values(S.cart).reduce((a, b) => a + b, 0);
   const subtotal = () => Object.entries(S.cart).reduce((a, [k, q]) => { try { return a + parseKey(k).price * q; } catch (e) { return a; } }, 0);
   function pruneCart() { for (const k of Object.keys(S.cart)) { try { const p = parseKey(k); if (p.m.soldOut) delete S.cart[k]; } catch (e) { delete S.cart[k]; } } }
+
+  // ---------------------------------------------------------------- promociones y clientes frecuentes
+  const cleanCode = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 15);
+  // Promociones del negocio. Sin código se aplican solas; con código, solo si el cliente lo escribe.
+  function promosOf(R, all) {
+    return (R && Array.isArray(R.promos) ? R.promos : []).filter(p => p && p.id).slice(0, 10).map(p => ({
+      id: String(p.id), title: String(p.title || "").slice(0, 40), kind: p.kind === "off" ? "off" : "pct",
+      value: Math.max(0, num(Number(p.value))), min: Math.max(0, num(Number(p.min))), code: cleanCode(p.code), on: p.on !== false,
+    })).filter(p => all || (p.on && p.value > 0 && (p.kind === "off" || p.value <= 90)));
+  }
+  const promoText = p => (p.kind === "pct" ? `${p.value}% de descuento` : `${money(p.value)} de descuento`);
+  const promoShort = p => (p.kind === "pct" ? `${p.value}% off` : `−${money(p.value)}`);
+  const promoDesc = p => `${p.title ? p.title + " · " : ""}${promoText(p)}${p.min ? ` en pedidos desde ${money(p.min)}` : ""}`;
+  function promoOff(p, sub) { if (!(sub > 0) || sub < p.min) return 0; const off = p.kind === "pct" ? (sub * p.value) / 100 : p.value; return Math.round(Math.min(off, sub) * 100) / 100; }
+  // La que más ahorra entre las automáticas y la del código escrito.
+  function bestPromo(R, sub, code) {
+    let best = null;
+    promosOf(R).forEach(p => { if (p.code && p.code !== code) return; const off = promoOff(p, sub); if (off > 0 && (!best || off > best.off)) best = { p, off }; });
+    return best;
+  }
+  const autoPromos = R => promosOf(R).filter(p => !p.code);
+  function loyaltyOf(R) {
+    const l = R && R.loyalty; if (!l || !l.on) return null;
+    const every = Math.round(num(Number(l.every), 0)), reward = String(l.reward || "").trim().slice(0, 60);
+    return every >= 2 && every <= 20 && reward ? { every, reward } : null;
+  }
+  // Tarjeta de sellos del cliente con cuenta: cada pedido suyo en este negocio es un sello.
+  // Al completar la tarjeta, su siguiente pedido lleva el premio.
+  function myStamps(rid, L) {
+    if (!L || !S.user || !S.histReady) return null;
+    const n = S.hist.filter(o => o.rid === rid).length, ready = n > 0 && n % L.every === 0;
+    return { n, have: ready ? L.every : n % L.every, ready };
+  }
 
   // ---------------------------------------------------------------- negocios: posición y estado
   function restPos(r) {
@@ -323,7 +358,7 @@
     else if (!list.length) html = `<div class="dir-empty"><h3>Sin resultados</h3><p>Prueba con otra palabra o quita el filtro.</p></div>`;
     else html = list.map(({ r, d }) => `<a class="rcard ${S.hover === r.id ? "sel" : ""}" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">
         ${logoHTML(r)}
-        <div style="min-width:0"><h3>${esc(r.name)}</h3><p class="meta">${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""}</p><p class="meta">${esc(r.kind === "truck" && r.loc && r.loc.stop ? r.loc.stop : r.address || r.description || "")}</p></div>
+        <div style="min-width:0"><h3>${esc(r.name)}</h3><p class="meta">${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""}</p><p class="meta">${esc(r.kind === "truck" && r.loc && r.loc.stop ? r.loc.stop : r.address || r.description || "")}</p>${(() => { const ps = autoPromos(r), L = loyaltyOf(r); return ps.length || L ? `<p class="meta perk-line">${I.tag}${esc(ps.length ? ps.map(p => p.title || promoShort(p)).join(" · ") : "Tarjeta de cliente frecuente")}</p>` : ""; })()}</div>
         <div class="side">${d != null ? `<span class="dist mono">${fmtMi(d)}</span>` : ""}<span class="chip cdot ${isOpen(r) ? "open" : "closed"}">${esc(openText(r))}</span></div></a>`).join("");
     $("#dirCards").innerHTML = html;
     drawDirMap(list);
@@ -352,7 +387,7 @@
   let rUnsubs = [], mineUnsub = null, restMap = null, restMarker = null;
   function openRest(rid) {
     closeRest();
-    Object.assign(S, { rid, R: null, Rerr: null, Rmenu: [], Rextras: [], RmenuReady: false, cart: {}, pick: {}, vsel: {}, esel: {}, note: "", cat: "", view: "menu", payErr: "", busy: false, mine: null, mineReady: false });
+    Object.assign(S, { rid, R: null, Rerr: null, Rmenu: [], Rextras: [], RmenuReady: false, cart: {}, pick: {}, vsel: {}, esel: {}, note: "", cat: "", view: "menu", payErr: "", busy: false, mine: null, mineReady: false, promoCode: "", promoInput: "", promoMsg: "", promoOk: false });
     S.myOrder = ss.get(`onroute-my-${rid}`) || null;
     if (S.myOrder) S.view = "status";
     handleStripeReturn(rid);
@@ -464,8 +499,9 @@
     const cats = menuCats(S.Rmenu);
     if (!cats.includes(S.cat)) S.cat = cats[0];
     const items = S.Rmenu.filter(m => m.cat === S.cat), vr = variantOf(R), closed = !isOpen(R) || R.status !== "active";
-    const last = getLast(S.rid);
-    return `${last && !closed ? (() => { const tot = Object.entries(last.cart).reduce((a, [k, q]) => a + parseKey(k).price * q, 0);
+    const last = getLast(S.rid), ap = autoPromos(R), L = loyaltyOf(R);
+    return `${ap.length || L ? `<div class="perks">${ap.map(p => `<div class="perk promo">${I.tag}<span><b>${esc(p.title || promoText(p))}</b>${p.title ? " · " + esc(promoText(p)) : ""}${p.min ? ` en pedidos desde ${money(p.min)}` : ""}. Se aplica solo en tu pedido.</span></div>`).join("")}${L ? loyaltyHTML(R, L) : ""}</div>` : ""}
+      ${last && !closed ? (() => { const tot = Object.entries(last.cart).reduce((a, [k, q]) => a + parseKey(k).price * q, 0);
         return `<div class="last"><div class="last-top"><b>Tu último pedido</b><small>${daysAgo(last.at)}</small></div><ul>${Object.entries(last.cart).map(([k, q]) => `<li>${q} × ${esc(parseKey(k).label)}</li>`).join("")}</ul><button class="btn dark" data-act="repeat">Pedir lo mismo · <span class="mono">${money(tot)}</span></button></div>`; })() : ""}
       ${cats.length > 1 ? `<div class="cats" role="group" aria-label="Categorías">${cats.map(c => `<button aria-pressed="${c === S.cat}" data-cat="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
       ${closed ? `<div class="note">${R.status !== "active" ? "Este negocio todavía no está publicado. Puedes ver el menú, pero aún no recibe pedidos." : R.paused ? "El negocio pausó los pedidos en línea. Vuelve en unos minutos." : R.kind === "truck" ? "El food truck no está en ruta ahora mismo. Puedes ver el menú; los pedidos se abren cuando comparta su ubicación." : "El negocio está cerrado por ahora."}</div>` : ""}
@@ -487,8 +523,23 @@
           </div></article>`;
       }).join("")}</div>`;
   }
+  function loyaltyHTML(R, L) {
+    const st = myStamps(R.id, L);
+    const dots = n => `<div class="stamps" aria-hidden="true">${Array.from({ length: L.every }, (_, i) => `<i class="${i < n ? "on" : ""}"></i>`).join("")}</div>`;
+    if (!S.user) return `<div class="perk loyal">${I.gift}<span><b>Cliente frecuente</b> · Junta ${L.every} sellos y tu siguiente pedido lleva: ${esc(L.reward)}. <a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para juntar sellos.</span></div>`;
+    if (!st) return `<div class="perk loyal">${I.gift}<span><b>Cliente frecuente</b> · Cargando tus sellos…</span></div>`;
+    return `<div class="perk loyal ${st.ready ? "ready" : ""}">${I.gift}<div class="loyal-in"><span>${st.ready ? `<b>¡Completaste tu tarjeta!</b> Tu siguiente pedido lleva: ${esc(L.reward)}.` : `<b>Cliente frecuente · ${st.have} de ${L.every} sellos</b> · Al juntar ${L.every}, tu siguiente pedido lleva: ${esc(L.reward)}.`}</span>${dots(st.have)}</div></div>`;
+  }
+  // Total con la promoción que aplique (solo en pedidos que se pagan al recoger).
+  function cartTotals() {
+    const sub = Math.round(subtotal() * 100) / 100, card = cardOn() && S.payMode === "card";
+    const pr = card ? null : bestPromo(S.R, sub, S.promoCode);
+    return { sub, pr, tot: Math.round((sub - (pr ? pr.off : 0)) * 100) / 100, card };
+  }
   function cartHTML() {
-    const tot = subtotal(), R = S.R, card = cardOn() && S.payMode === "card", closed = !isOpen(R) || R.status !== "active";
+    const R = S.R, { sub, pr, tot, card } = cartTotals(), closed = !isOpen(R) || R.status !== "active";
+    const L = loyaltyOf(R), st = myStamps(S.rid, L), hasCodes = promosOf(R).some(p => p.code);
+    const near = !pr && !card ? autoPromos(R).filter(p => p.min > sub).sort((a, b) => a.min - b.min)[0] : null;
     if (!S.name && S.profile && S.profile.name) S.name = S.profile.name;
     return `<button class="back m-only" data-act="tomenu">← Seguir pidiendo</button>
       <div class="sheet">
@@ -507,7 +558,13 @@
         ${cardOn() ? `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices">
             <button data-paymode="card" aria-pressed="${S.payMode === "card"}"><b>Tarjeta ahora</b>Pago seguro con Stripe</button>
             <button data-paymode="cash" aria-pressed="${S.payMode === "cash"}"><b>Al recoger</b>En el negocio</button></div></div>` : ""}
-        <div class="totals"><div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
+        ${hasCodes && !card ? `<div class="field"><label for="promoInput">Código de promoción <span class="hint">(opcional)</span></label>
+          <div class="promo-in"><input id="promoInput" maxlength="15" value="${esc(S.promoInput || "")}" placeholder="Ej. TORTAMARTES" autocapitalize="characters" autocomplete="off"><button class="btn sec sm" data-act="promo">Aplicar</button></div>
+          ${S.promoMsg ? `<p class="${S.promoOk ? "ok-msg" : "err"}" role="status">${esc(S.promoMsg)}</p>` : ""}</div>` : ""}
+        ${near ? `<div class="promo-hint">${I.tag}<span>Te faltan <b class="mono">${money(near.min - sub)}</b> para ${esc(near.title || promoText(near))}.</span></div>` : ""}
+        ${st && st.ready ? (card ? `<div class="promo-hint">${I.gift}<span>Completaste tu tarjeta de sellos. Para recibir tu premio (${esc(L.reward)}) elige <b>Al recoger</b>.</span></div>` : `<div class="reward">${I.gift}<span><b>¡Premio de cliente frecuente!</b> Este pedido lleva: ${esc(L.reward)}.</span></div>`) : ""}
+        ${card && promosOf(R).length ? `<p class="hint">Las promociones aplican en pedidos que pagas al recoger.</p>` : ""}
+        <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
         <button class="pay" data-act="pay" ${closed || S.busy ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
@@ -529,6 +586,8 @@
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Pagas al recoger"}</span></div>
       <ol class="steps">${steps.map((s, i) => { const done = i < idx || (i === 2 && idx >= 2); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`; }).join("")}</ol>
       ${o.note ? `<div class="onote"><b>Tu nota:</b> ${esc(o.note)}</div>` : ""}
+      ${o.promo ? `<div class="promo-hint">${I.tag}<span>${esc(o.promo.title || "Promoción")}: ahorraste <b class="mono">${money(o.promo.off)}</b></span></div>` : ""}
+      ${o.reward ? `<div class="reward">${I.gift}<span><b>Premio de cliente frecuente:</b> ${esc(o.reward)}. Recógelo con tu pedido.</span></div>` : ""}
       <div class="points"><span>Total del pedido</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
   }
@@ -551,10 +610,13 @@
       } catch (e) { S.busy = false; S.payErr = e.message && e.message !== "Failed to fetch" ? e.message : "No se pudo conectar con el pago. Revisa tu conexión o elige Pagar al recoger."; paint(renderRest); }
       return;
     }
+    const { sub, pr, tot } = cartTotals(), L = loyaltyOf(S.R), st = myStamps(rid, L);
     const order = { num: "T" + String(Math.floor(100 + Math.random() * 900)), who: nm, items: Object.entries(S.cart).map(([k, q]) => ({ name: parseKey(k).label, qty: q })),
-      total: Math.round(subtotal() * 100) / 100, status: "new", pickup: S.pickup, createdAt: Date.now(), pay: "cash" };
+      total: tot, status: "new", pickup: S.pickup, createdAt: Date.now(), pay: "cash" };
     const note = String(S.note || "").trim().slice(0, 200); if (note) order.note = note;
+    if (pr) { order.subtotal = sub; order.promo = { title: (pr.p.title || promoText(pr.p)).slice(0, 40), code: pr.p.code, off: pr.off }; }
     if (S.user) order.uid = S.user.uid;
+    if (S.user && st && st.ready) order.reward = L.reward;
     S.busy = true; paint(renderRest);
     try {
       const ref = db.collection(`restaurants/${rid}/orders`).doc();
@@ -563,7 +625,7 @@
       ls.set(`onroute-last-${rid}`, { cart: S.cart, name: nm, at: Date.now() });
       if (S.user) db.doc(`users/${S.user.uid}/orders/${ref.id}`).set({ rid, rname: S.R.name, num: order.num, total: order.total, items: order.items, cart: S.cart, pay: "cash", createdAt: order.createdAt })
         .catch(e => console.error("OnRoute: historial", e));
-      S.cart = {}; S.note = ""; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
+      S.cart = {}; S.note = ""; S.promoCode = ""; S.promoInput = ""; S.promoMsg = ""; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
       const c = $("#client"); if (c) c.scrollTop = 0;
     } catch (e) {
       console.error("OnRoute: pedido", e); S.busy = false;
@@ -590,10 +652,11 @@
           S.my = d ? { id: d.id, ...d.data() } : null; S.myReady = true;
           if (S.my && S.my.id !== prev) watchMine2(S.my.id);
           if (S.my && !S.pfDirty) S.pf = null;
+          if (S.my && !S.prDirty) S.pr = null;
           afterAuth();
         }, err => { console.error("OnRoute: mi negocio", err); S.myReady = true; afterAuth(); });
         histUnsub = db.collection(`users/${u.uid}/orders`).orderBy("createdAt", "desc").limit(100).onSnapshot(
-          snap => { S.hist = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.histReady = true; if (S.route.name === "account") paint(renderAccount); },
+          snap => { S.hist = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.histReady = true; if (S.route.name === "account") paint(renderAccount); if (S.route.name === "rest") paint(renderRest); },
           () => { S.histReady = true; });
       }
       afterAuth();
@@ -687,7 +750,7 @@
     if (!S.authReady || (S.user && (!S.myReady || !S.profileReady))) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
     if (!S.user) { if (!S.authRole) S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.my) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${regHTML()}</div></div>`; return; }
-    const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
+    const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["promo", "Promos", I.tag], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
     if (!tabs.some(t => t[0] === S.ktab)) S.ktab = "orders";
     const key = S.my.id + "|" + tabs.length;
     if (v.dataset.built !== key) {
@@ -696,6 +759,7 @@
         <div class="pbody">
           <div class="kpanel scroll" id="pOrders"></div>
           <div class="kpanel scroll narrow" id="pMenu" hidden></div>
+          <div class="kpanel scroll narrow" id="pPromo" hidden></div>
           <div class="kpanel scroll narrow" id="pRep" hidden></div>
           <div class="kpanel scroll narrow" id="pProf" hidden></div>
           <nav class="knav" id="kNav" role="tablist" aria-label="Secciones" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-ktab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "orders" ? '<i class="badge" id="newBadge" hidden></i>' : ""}</button>`).join("")}</nav>
@@ -703,12 +767,13 @@
     }
     $("#pHead").innerHTML = head;
     $$("#kNav button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.ktab === S.ktab)));
-    const map = { orders: "#pOrders", menu: "#pMenu", rep: "#pRep", prof: "#pProf" };
+    const map = { orders: "#pOrders", menu: "#pMenu", promo: "#pPromo", rep: "#pRep", prof: "#pProf" };
     Object.entries(map).forEach(([k, sel]) => { const el = $(sel); if (el) el.hidden = k !== S.ktab; });
     const nNew = S.orders.filter(o => o.status === "new").length, nb = $("#newBadge");
     if (nb) { nb.hidden = !nNew; nb.textContent = nNew; }
     if (S.ktab === "orders") renderOrders();
     if (S.ktab === "menu") renderMenuEd();
+    if (S.ktab === "promo") renderPromos();
     if (S.ktab === "rep") renderRep();
     if (S.ktab === "prof") renderProf();
   }
@@ -817,8 +882,10 @@
         <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
         <ul>${(o.items || []).map(it => `<li>${num(Number(it.qty))} × ${esc(it.name)}</li>`).join("")}</ul>
         ${o.note ? `<div class="onote"><b>Nota:</b> ${esc(o.note)}</div>` : ""}
+        ${o.promo ? `<div class="onote promo"><b>Promo:</b> ${esc(o.promo.title || "")}${o.promo.code ? " · código " + esc(o.promo.code) : ""} · −${money(o.promo.off)}</div>` : ""}
+        ${o.reward ? `<div class="onote prize"><b>Premio:</b> ${esc(o.reward)} · ${rewardCheck(o)}</div>` : ""}
         <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup === "30" ? " · llega en 30 min" : ""}</div>
-        <span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Cobrar al entregar"}</span>
+        <span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Cobrar al entregar"}</span>${visitsOf(o) > 1 ? `<span class="paychip freq">Cliente frecuente · visita ${visitsOf(o)}</span>` : ""}
         <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
       : `<div class="empty">${k === "new" ? (S.ordersReady ? "Sin pedidos nuevos." : "Cargando…") : "Sin pedidos"}</div>`}</div>`; }).join("");
   }
@@ -1158,6 +1225,95 @@ Reglas:
       : `<div class="empty">${q ? "Ningún pedido entregado con ese nombre en este periodo." : "Todavía no hay pedidos entregados en este periodo."}</div>`;
   }
 
+  // ---------- Promociones y clientes frecuentes (negocio)
+  const counted = o => !["pending", "cancelled"].includes(o.status);
+  // Número de visita de un cliente con cuenta (cuenta los pedidos cargados en el panel).
+  function visitsOf(o) { return o.uid ? S.orders.filter(x => x.uid === o.uid && counted(x) && x.createdAt <= o.createdAt).length : 0; }
+  function rewardCheck(o) {
+    const L = loyaltyOf(S.my), prev = visitsOf(o) - 1;
+    if (L && prev > 0 && prev % L.every === 0) return `<span class="ok-ln">✓ ${prev} pedidos previos</span>`;
+    return `<span class="warn-ln">revisa: no vemos ${L ? L.every : "suficientes"} pedidos previos de este cliente</span>`;
+  }
+  function custStats() {
+    const m = new Map();
+    S.orders.filter(counted).forEach(o => {
+      const key = o.uid ? "u:" + o.uid : "n:" + norm(o.who).trim(); if (key === "n:") return;
+      const c = m.get(key) || { name: o.who, acct: !!o.uid, n: 0, spent: 0, last: 0, rewards: 0 };
+      c.n++; c.spent += num(o.total); if (o.reward) c.rewards++;
+      if (o.createdAt > c.last) { c.last = o.createdAt; c.name = o.who; }
+      m.set(key, c);
+    });
+    return [...m.values()].sort((a, b) => b.n - a.n || b.spent - a.spent);
+  }
+  function prEnsure() {
+    if (S.pr) return;
+    const l = S.my.loyalty || {};
+    S.pr = { promos: promosOf(S.my, true), loyalty: { on: !!l.on, every: l.every || 5, reward: l.reward || "" } }; S.prDirty = false;
+  }
+  function prTouch() { S.prDirty = true; S.prMsg = ""; S.prCls = ""; prBar(); }
+  function prBar() {
+    const s = $("#prState"); if (!s) return;
+    s.textContent = S.prMsg || (S.prDirty ? "Cambios sin guardar" : "Sin cambios"); s.className = S.prCls || (S.prDirty ? "dirty" : "");
+    $("[data-prt=save]").disabled = !S.prDirty || S.prSaving; $("[data-prt=discard]").disabled = !S.prDirty || S.prSaving;
+  }
+  function renderPromos() {
+    const el = $("#pPromo"); prEnsure();
+    const P = S.pr, L = loyaltyOf(S.my), cs = custStats(), back = cs.filter(c => c.n > 1);
+    el.innerHTML = `<div class="ptitle"><h3>Promociones y clientes frecuentes</h3><p>Atrae clientes con promociones y premia a los que regresan.</p></div>
+      <div class="kcard"><h4>Promociones</h4>
+        <p class="hint" style="margin-bottom:10px">Sin código, la promoción se aplica sola en el carrito y aparece en tu página. Con código, solo la recibe quien lo escriba: compártelo en tus redes. Si aplican varias, el cliente recibe la que más le ahorra. Aplican en pedidos que se pagan al recoger.</p>
+        <div class="plist">${P.promos.map((p, k) => `<div class="pcard ${p.on ? "" : "off"}" data-p="${k}">
+          <input id="pt-${k}" data-pr="title" maxlength="40" value="${esc(p.title)}" placeholder="Nombre (ej. Martes de tortas)" aria-label="Nombre de la promoción">
+          <div class="pline">
+            <div class="seg" role="group" aria-label="Tipo de descuento"><button data-prkind="pct" aria-pressed="${p.kind === "pct"}">%</button><button data-prkind="off" aria-pressed="${p.kind === "off"}">$</button></div>
+            <label class="pf">Descuento<input id="pv-${k}" data-pr="value" type="number" inputmode="decimal" min="0" step="0.5" value="${esc(p.value)}"></label>
+            <label class="pf">Pedido mínimo $<input id="pm-${k}" data-pr="min" type="number" inputmode="decimal" min="0" step="1" value="${esc(p.min || "")}" placeholder="0"></label>
+            <label class="pf">Código<input id="pc-${k}" data-pr="code" maxlength="15" value="${esc(p.code)}" placeholder="Opcional" autocapitalize="characters" autocomplete="off"></label>
+          </div>
+          <div class="me-foot"><div class="l"><button class="me-chip ${p.on ? "" : "on"}" data-prt="on">${p.on ? "Activa · tocar para pausar" : "Pausada · tocar para activar"}</button></div><button class="me-del" data-prt="del">Eliminar</button></div>
+        </div>`).join("") || `<p class="hint">Todavía no tienes promociones.</p>`}</div>
+        <button class="me-chip" data-prt="add" style="margin-top:10px" ${P.promos.length >= 10 ? "disabled" : ""}>+ Agregar promoción</button></div>
+      <div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Tarjeta de cliente frecuente</h4>
+        <p class="hint">Cada pedido de un cliente con cuenta OnRoute suma un sello. Cuando completa la tarjeta, su siguiente pedido llega a tu cocina marcado con el premio para que se lo entregues.</p>
+        <label class="prow" for="loyOn"><span class="prow-i">${I.gift}</span><span class="prow-t">Tarjeta de sellos<small>${P.loyalty.on ? "Activada" : "Desactivada"}</small></span><input type="checkbox" id="loyOn" class="tgl" ${P.loyalty.on ? "checked" : ""}></label>
+        <div class="loy-f"><label class="pf">Sellos para el premio<input id="loyEvery" data-loy="every" type="number" inputmode="numeric" min="2" max="20" value="${esc(P.loyalty.every)}"></label>
+          <label class="pf grow">Premio<input id="loyReward" data-loy="reward" maxlength="60" value="${esc(P.loyalty.reward)}" placeholder="Ej. Una torta sencilla gratis"></label></div></div>
+      <div class="me-bar"><span id="prState"></span><div><button class="btn sec sm" data-prt="discard">Descartar</button><button class="btn sm" data-prt="save">Guardar</button></div></div>
+      <div class="kcard"><h4>Tus clientes</h4>
+        ${!S.ordersReady ? `<div class="empty">Cargando…</div>` : !cs.length ? `<div class="empty">Cuando recibas pedidos, aquí verás quién te compra más.</div>` : `
+        <div class="h-sum"><span><b class="mono">${cs.length}</b>clientes</span><span><b class="mono">${back.length}</b>regresaron</span><span><b class="mono">${cs.length ? Math.round((back.length / cs.length) * 100) : 0}%</b>vuelven</span></div>
+        ${cs.slice(0, 40).map(c => `<div class="adm-row"><span class="rlogo">${esc(initials(c.name))}</span>
+          <div style="min-width:0"><b>${esc(c.name)}</b><span>${c.n} pedido${c.n > 1 ? "s" : ""} · ${money(c.spent)} · ${ago(c.last)}${c.acct ? "" : " · sin cuenta"}</span></div>
+          <div class="acts">${c.acct && L ? `<span class="chip ${c.n % L.every === 0 ? "open" : ""}">${c.n % L.every === 0 ? "Premio listo" : `${c.n % L.every}/${L.every} sellos`}</span>` : ""}${c.n > 1 ? `<span class="chip info">Frecuente</span>` : ""}</div></div>`).join("")}
+        <p class="hint" style="margin-top:10px">Basado en tus últimos ${S.orders.length} pedidos. Los clientes sin cuenta se agrupan por nombre.</p>`}</div>`;
+    prBar();
+  }
+  async function savePromos() {
+    const P = S.pr; let bad = null;
+    const codes = P.promos.map(p => cleanCode(p.code)).filter(Boolean);
+    P.promos.forEach((p, k) => {
+      const v = Number(p.value), mn = Number(p.min || 0);
+      if (!(v > 0) || (p.kind === "pct" && v > 90) || (p.kind === "off" && v > 100)) bad = bad || [`#pv-${k}`, p.kind === "pct" ? "El descuento en % va de 1 a 90." : "El descuento en $ va de $0.50 a $100."];
+      if (!(mn >= 0 && mn < 1000)) bad = bad || [`#pm-${k}`, "Revisa el pedido mínimo."];
+      const c = cleanCode(p.code); if (c && codes.indexOf(c) !== codes.lastIndexOf(c)) bad = bad || [`#pc-${k}`, "Hay dos promociones con el mismo código."];
+    });
+    const Lp = P.loyalty, ev = Math.round(Number(Lp.every));
+    if (Lp.on && !(ev >= 2 && ev <= 20)) bad = bad || ["#loyEvery", "Los sellos para el premio van de 2 a 20."];
+    if (Lp.on && !String(Lp.reward).trim()) bad = bad || ["#loyReward", "Escribe cuál es el premio."];
+    if (bad) { const e = $(bad[0]); if (e) { e.classList.add("bad"); e.scrollIntoView({ block: "center" }); e.focus(); } S.prMsg = bad[1]; S.prCls = "err"; prBar(); return; }
+    const promos = P.promos.map(p => ({ id: p.id, title: String(p.title || "").trim().slice(0, 40), kind: p.kind === "off" ? "off" : "pct",
+      value: Math.round(Number(p.value) * 100) / 100, min: Math.round(Number(p.min || 0) * 100) / 100, code: cleanCode(p.code), on: !!p.on }));
+    const loyalty = { on: !!Lp.on, every: ev >= 2 && ev <= 20 ? ev : 5, reward: String(Lp.reward || "").trim().slice(0, 60) };
+    S.prSaving = true; S.prMsg = "Guardando…"; S.prCls = ""; prBar();
+    try {
+      await db.doc(`restaurants/${S.my.id}`).update({ promos, loyalty, updatedAt: Date.now() });
+      S.prSaving = false; S.prDirty = false; S.pr = null; S.prMsg = "Guardado. Tus clientes ya lo ven."; S.prCls = "ok"; paint(renderPanel);
+    } catch (e) {
+      console.error("OnRoute: promociones", e); S.prSaving = false;
+      S.prMsg = e && e.code === "permission-denied" ? "No se pudo guardar: falta publicar las reglas nuevas de Firestore." : "No se pudo guardar. Revisa la conexión."; S.prCls = "err"; prBar();
+    }
+  }
+
   // ---------- Perfil, ubicación y enlace
   function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)) }; S.pfDirty = false; } }
   function renderProf() {
@@ -1452,6 +1608,14 @@ Reglas:
     if (d.pickup) { S.pickup = d.pickup; paint(renderRest); return; }
     if (d.paymode) { S.payMode = d.paymode; paint(renderRest); return; }
     if (d.act === "pay") { placeOrder(); return; }
+    if (d.act === "promo") {
+      const c = cleanCode(S.promoInput), p = promosOf(S.R).find(x => x.code && x.code === c);
+      S.promoInput = c; S.promoOk = false;
+      if (!c) { S.promoCode = ""; S.promoMsg = ""; }
+      else if (!p) { S.promoCode = ""; S.promoMsg = "Ese código no existe o ya no está activo."; }
+      else { S.promoCode = c; S.promoOk = subtotal() >= p.min; S.promoMsg = S.promoOk ? `Código aplicado: ${promoDesc(p)}.` : `Código válido: aplica en pedidos desde ${money(p.min)}.`; }
+      paint(renderRest); return;
+    }
     // Mi negocio
     if (d.auth) { authAction(d.auth); return; }
     if (d.authrole) { S.authRole = d.authrole; S.authName = (($("#authName") || {}).value || S.authName); S.authMsg = ""; if (S.route.name === "account") paint(renderAccount); else if (S.route.name === "admin") paint(renderAdmin); else paint(renderPanel); return; }
@@ -1492,11 +1656,24 @@ Reglas:
       if (d.me === "save") { meSave(); return; }
     }
     if (d.range) { S.hRange = d.range; renderRep(); return; }
+    if (d.prt || d.prkind) {
+      prEnsure();
+      const box = t.closest(".pcard"), k = box ? Number(box.dataset.p) : -1, P = S.pr;
+      if (d.prkind && P.promos[k]) { P.promos[k].kind = d.prkind; prTouch(); paint(renderPromos); return; }
+      if (d.prt === "add") { P.promos.push({ id: "pr" + Date.now().toString(36), title: "", kind: "pct", value: 10, min: 0, code: "", on: true }); prTouch(); paint(renderPromos); const n = $(`#pt-${P.promos.length - 1}`); if (n) { n.scrollIntoView({ block: "center" }); n.focus(); } return; }
+      if (d.prt === "on" && P.promos[k]) { P.promos[k].on = !P.promos[k].on; prTouch(); paint(renderPromos); return; }
+      if (d.prt === "del" && P.promos[k]) { if (d.armed !== "1") { t.dataset.armed = "1"; t.textContent = "Toca otra vez para eliminar"; setTimeout(() => { if (t.isConnected) { t.dataset.armed = ""; t.textContent = "Eliminar"; } }, 4000); return; } P.promos.splice(k, 1); prTouch(); paint(renderPromos); return; }
+      if (d.prt === "discard") { S.pr = null; S.prDirty = false; S.prMsg = ""; S.prCls = ""; paint(renderPromos); return; }
+      if (d.prt === "save") { savePromos(); return; }
+    }
   });
   document.addEventListener("input", e => {
     const t = e.target, d = t.dataset;
     if (t.id === "nameInput") { S.name = t.value; return; }
     if (t.id === "noteInput") { S.note = t.value; return; }
+    if (t.id === "promoInput") { S.promoInput = t.value; return; }
+    if (d.pr) { prEnsure(); const p = S.pr.promos[Number(t.closest(".pcard").dataset.p)]; if (p) p[d.pr] = d.pr === "code" ? cleanCode(t.value) : t.value; t.classList.remove("bad"); prTouch(); return; }
+    if (d.loy) { prEnsure(); S.pr.loyalty[d.loy] = t.value; t.classList.remove("bad"); prTouch(); return; }
     if (d.reg) { S.reg[d.reg] = t.value; if (d.reg === "name") { const s = $(".slug"); if (s) s.textContent = `Tu enlace: ${BASE}?r=${slugify(t.value) || "tu-negocio"}`; } return; }
     if (d.pf) { pfEnsure(); S.pf[d.pf] = t.value; S.pfDirty = true; return; }
     if (d.ht !== undefined) { pfEnsure(); const day = S.pf.hours[Number(d.ht)]; if (okT(t.value)) { day[d.hk] = t.value; S.pfDirty = true; $("#pfHours").dataset.v = JSON.stringify(S.pf.hours); } return; }
@@ -1516,11 +1693,13 @@ Reglas:
     if (d.hopen !== undefined) { pfEnsure(); S.pf.hours[Number(d.hopen)] = t.checked ? { open: "10:00", close: "18:00" } : { closed: true }; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el horario."; paint(renderProf); return; }
     if (d.photo !== undefined && t.type === "file") { onPhoto(t); return; }
     if (t.id === "aiIn") { onMenuPhotos(t); return; }
+    if (t.id === "loyOn") { prEnsure(); S.pr.loyalty.on = t.checked; prTouch(); paint(renderPromos); return; }
   });
   document.addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
+    if (e.key === "Enter" && e.target.id === "promoInput") { e.preventDefault(); const b = $("[data-act=promo]"); if (b) b.click(); }
   });
-  window.addEventListener("beforeunload", e => { if (S.meDirty || watchId !== null) { e.preventDefault(); e.returnValue = ""; } });
+  window.addEventListener("beforeunload", e => { if (S.meDirty || S.prDirty || watchId !== null) { e.preventDefault(); e.returnValue = ""; } });
   setInterval(() => { if (S.route.name === "panel" && S.ktab === "orders" && S.my) paint(renderOrders); if (S.route.name === "rest" && S.R) paint(renderRest); if (S.route.name === "home") paint(renderHome); }, 60000);
 
   if ("serviceWorker" in navigator && location.protocol === "https:") window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));

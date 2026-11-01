@@ -21,7 +21,7 @@ service cloud.firestore {
     // Datos del perfil que el dueño puede cambiar (nunca status ni ownerUid).
     function profileKeys() {
       return ['name','kind','cuisine','description','phone','address','lat','lng','logoUrl',
-              'paused','menuNote','variant','loc','hours','updatedAt'];
+              'paused','menuNote','variant','loc','hours','promos','loyalty','updatedAt'];
     }
     function validProfile(d) {
       return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
@@ -30,7 +30,12 @@ service cloud.firestore {
         && (!('cuisine' in d) || (d.cuisine is string && d.cuisine.size() <= 60))
         && (!('paused' in d) || d.paused is bool)
         && (!('hours' in d) || (d.hours is map && d.hours.days is list && d.hours.days.size() == 7))
-        && (!('logoUrl' in d) || (d.logoUrl is string && d.logoUrl.size() <= 60000));
+        && (!('logoUrl' in d) || (d.logoUrl is string && d.logoUrl.size() <= 60000))
+        // Promociones (máximo 10) y tarjeta de cliente frecuente.
+        && (!('promos' in d) || (d.promos is list && d.promos.size() <= 10))
+        && (!('loyalty' in d) || (d.loyalty is map && d.loyalty.keys().hasOnly(['on','every','reward'])
+            && d.loyalty.on is bool && d.loyalty.every is int && d.loyalty.every >= 2 && d.loyalty.every <= 20
+            && d.loyalty.reward is string && d.loyalty.reward.size() <= 60));
     }
 
     // ---------- Administración ----------
@@ -115,7 +120,18 @@ service cloud.firestore {
         allow list: if isOwnerOf(rid) || isAdmin();
         allow create: if rest(rid).status == 'active'
           && !(('paused' in rest(rid)) && rest(rid).paused == true)
-          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay','uid','note'])
+          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay','uid','note','subtotal','promo','reward'])
+          // Promoción: el descuento nunca es mayor que el subtotal y el total es subtotal menos descuento.
+          && (!('promo' in request.resource.data) || (request.resource.data.promo is map
+              && request.resource.data.promo.keys().hasOnly(['title','code','off'])
+              && request.resource.data.promo.off is number && request.resource.data.promo.off > 0
+              && request.resource.data.subtotal is number && request.resource.data.subtotal < 1000
+              && request.resource.data.promo.off <= request.resource.data.subtotal
+              && request.resource.data.total >= request.resource.data.subtotal - request.resource.data.promo.off - 0.01))
+          && (!('subtotal' in request.resource.data) || 'promo' in request.resource.data)
+          // Premio de cliente frecuente: solo en pedidos con cuenta (el negocio lo verifica en su pantalla).
+          && (!('reward' in request.resource.data) || (request.resource.data.reward is string && request.resource.data.reward.size() <= 60
+              && 'uid' in request.resource.data))
           && (!('note' in request.resource.data) || (request.resource.data.note is string && request.resource.data.note.size() <= 200))
           && (!('uid' in request.resource.data) || (signedIn() && request.resource.data.uid == request.auth.uid))
           && request.resource.data.status == 'new'
