@@ -151,11 +151,50 @@
     return null;
   }
   const truckLive = r => !!(r.kind === "truck" && r.loc && r.loc.sharing && Date.now() - num(r.loc.updatedAt) < 15 * 60000);
-  const isOpen = r => !!r && !r.paused && (r.kind !== "truck" || truckLive(r));
+  // ---------- Horario ----------
+  // restaurants/{id}.hours = { tz, days: [dom..sáb] }, cada día { open:"10:00", close:"18:00" } o { closed:true }.
+  // Si el negocio no lo ha puesto: lunes a sábado 10 am – 6 pm, domingo cerrado (hora de San Antonio).
+  const TZ = "America/Chicago";
+  const DAYS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+  const WEEK = [1, 2, 3, 4, 5, 6, 0]; // lunes primero
+  const DEF_HOURS = { tz: TZ, days: [0, 1, 2, 3, 4, 5, 6].map(i => i === 0 ? { closed: true } : { open: "10:00", close: "18:00" }) };
+  const okT = t => typeof t === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(t);
+  function hoursOf(r) {
+    const h = r && r.hours;
+    if (!h || !Array.isArray(h.days) || h.days.length !== 7) return DEF_HOURS;
+    return { tz: typeof h.tz === "string" && h.tz ? h.tz : TZ, days: h.days.map(d => d && !d.closed && okT(d.open) && okT(d.close) ? { open: d.open, close: d.close } : { closed: true }) };
+  }
+  const mins = t => Number(t.slice(0, 2)) * 60 + Number(t.slice(3));
+  function nowIn(tz) {
+    try {
+      const p = {}; new Intl.DateTimeFormat("en-US", { timeZone: tz, weekday: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date()).forEach(x => p[x.type] = x.value);
+      return { day: ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(p.weekday), min: (Number(p.hour) % 24) * 60 + Number(p.minute) };
+    } catch (e) { const d = new Date(); return { day: d.getDay(), min: d.getHours() * 60 + d.getMinutes() }; }
+  }
+  function inHours(r) {
+    const h = hoursOf(r), n = nowIn(h.tz), t = h.days[n.day], y = h.days[(n.day + 6) % 7];
+    if (!t.closed) { const o = mins(t.open), c = mins(t.close); if (c > o ? n.min >= o && n.min < c : n.min >= o) return true; }
+    // turno que pasa la medianoche (ej. 6 pm – 2 am)
+    if (!y.closed && mins(y.close) <= mins(y.open) && n.min < mins(y.close)) return true;
+    return false;
+  }
+  function fmt12(t) { const h = Number(t.slice(0, 2)), m = t.slice(3), hh = h % 12 || 12; return `${hh}${m !== "00" ? ":" + m : ""} ${h < 12 ? "am" : "pm"}`; }
+  const dayText = d => d.closed ? "Cerrado" : `${fmt12(d.open)} – ${fmt12(d.close)}`;
+  function nextOpen(r) {
+    const h = hoursOf(r), n = nowIn(h.tz);
+    for (let k = 0; k < 8; k++) {
+      const i = (n.day + k) % 7, d = h.days[i];
+      if (d.closed || (k === 0 && mins(d.open) <= n.min)) continue;
+      return `Abre ${k === 0 ? "hoy" : k === 1 ? "mañana" : DAYS[i].toLowerCase()} ${fmt12(d.open)}`;
+    }
+    return "";
+  }
+  const isOpen = r => !!r && !r.paused && inHours(r) && (r.kind !== "truck" || truckLive(r));
   function openText(r) {
     if (isOpen(r)) return r.kind === "truck" ? "Abierto · en ruta" : "Abierto";
     if (r.paused) return "No recibe pedidos ahora";
-    return r.kind === "truck" ? "Fuera de ruta" : "Cerrado";
+    if (!inHours(r)) { const nx = nextOpen(r); return nx ? `Cerrado · ${nx}` : "Cerrado"; }
+    return "Fuera de ruta";
   }
   function logoHTML(r, cls = "rlogo") {
     const u = safeImg(r && r.logoUrl);
@@ -398,7 +437,9 @@
       <div class="hero-facts"><button class="fav" data-act="fav" aria-pressed="${isFav(R.id)}">${isFav(R.id) ? "♥ Guardado" : "♡ Guardar"}</button><span class="chip cdot ${open ? "open" : "closed"}">${esc(openText(R))}</span>${R.phone ? `<span class="chip">${esc(R.phone)}</span>` : ""}${R.status !== "active" ? `<span class="chip">Vista previa · aún no publicado</span>` : ""}</div>`;
     const where = R.kind === "truck" ? (R.loc && R.loc.stop) || "" : R.address || "";
     const when = R.kind === "truck" && R.loc && R.loc.updatedAt ? (truckLive(R) ? "Ubicación en vivo · " : "Última ubicación · ") + ago(R.loc.updatedAt) : R.kind === "truck" ? "Todavía no comparte su ubicación" : "";
-    $("#rLoc").innerHTML = `<div><strong>${esc(where || (pos ? "Ubicación" : "Ubicación no disponible"))}</strong><span>${esc([R.loc && R.loc.hours, when].filter(Boolean).join(" · "))}</span></div>
+    const hh = hoursOf(R), td = nowIn(hh.tz).day, hOpen = !!($("#rLoc details.hrs") || {}).open;
+    $("#rLoc").innerHTML = `<div><strong>${esc(where || (pos ? "Ubicación" : "Ubicación no disponible"))}</strong><span>${esc(when)}</span>
+        <details class="hrs"${hOpen ? " open" : ""}><summary>Hoy: ${esc(dayText(hh.days[td]))}</summary><ul>${WEEK.map(i => `<li class="${i === td ? "today" : ""}"><span>${DAYS[i]}</span><span>${esc(dayText(hh.days[i]))}</span></li>`).join("")}</ul></details></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px">${truckLive(R) ? '<span class="live"><i></i>GPS</span>' : ""}${pos ? `<a class="go" target="_blank" rel="noopener" href="https://www.google.com/maps/dir/?api=1&destination=${pos.lat},${pos.lng}">Cómo llegar</a>` : ""}</div>`;
     const mapEl = $("#restMap");
     mapEl.parentElement.querySelector(".map").hidden = !pos;
@@ -760,7 +801,7 @@
     $("#sOrders").textContent = today.length;
     $("#sSaved").textContent = "$" + Math.round(sales * COMMISSION);
     const t = $("#acceptT"); if (document.activeElement !== t) t.checked = !R.paused;
-    $("#acceptSub").textContent = R.paused ? "Pausado: los clientes ven el menú pero no pueden pedir" : R.kind === "truck" && !truckLive(R) ? "Activa tu GPS en Perfil para aparecer abierto" : "Los clientes pueden pedir ahora";
+    $("#acceptSub").textContent = R.paused ? "Pausado: los clientes ven el menú pero no pueden pedir" : !inHours(R) ? `Fuera de tu horario · ${nextOpen(R) || "cambia tu horario en Perfil"}` : R.kind === "truck" && !truckLive(R) ? "Activa tu GPS en Perfil para aparecer abierto" : "Los clientes pueden pedir ahora";
     const gb = $("#gpsBar"), live = truckLive(R);
     gb.classList.toggle("on", R.kind === "truck" ? live : typeof R.lat === "number");
     gb.innerHTML = I.pin + `<span>${R.kind === "truck" ? (live ? `GPS en vivo${R.loc.stop ? " · " + esc(R.loc.stop) : ""}` : "GPS apagado · tocar para compartir ubicación") : typeof R.lat === "number" ? `Ubicación fija${R.address ? " · " + esc(R.address) : ""}` : "Falta tu ubicación · tocar para ponerla"}</span>`;
@@ -1118,7 +1159,7 @@ Reglas:
   }
 
   // ---------- Perfil, ubicación y enlace
-  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng }; S.pfDirty = false; } }
+  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)) }; S.pfDirty = false; } }
   function renderProf() {
     const el = $("#pProf"), R = S.my;
     pfEnsure();
@@ -1132,7 +1173,7 @@ Reglas:
             <div class="field"><label for="pf-name">Nombre</label><input id="pf-name" data-pf="name" maxlength="60"></div>
             <div class="field"><span class="flabel">Tipo</span><div class="kinds"><button data-pfkind="truck">Food truck</button><button data-pfkind="restaurant">Restaurante</button></div></div>
             <div class="field"><label for="pf-cuisine">Tipo de comida</label><input id="pf-cuisine" data-pf="cuisine" maxlength="60" placeholder="Ej. Tortas, tacos"></div>
-            <div class="field"><label for="pf-desc">Descripción</label><textarea id="pf-desc" data-pf="description" maxlength="300" placeholder="Qué te hace especial, horario, especialidades"></textarea></div>
+            <div class="field"><label for="pf-desc">Descripción</label><textarea id="pf-desc" data-pf="description" maxlength="300" placeholder="Qué te hace especial, especialidades"></textarea></div>
             <div class="field"><label for="pf-phone">Teléfono</label><input id="pf-phone" data-pf="phone" maxlength="30" inputmode="tel"></div>
             ${P.kind === "restaurant" ? `<div class="field"><label for="pf-addr">Dirección</label><input id="pf-addr" data-pf="address" maxlength="120"></div>` : ""}
             <p id="pfMsg" class="hint"></p>
@@ -1143,8 +1184,13 @@ Reglas:
                 <p class="hint">Toca el mapa donde está tu local, o usa tu ubicación si estás ahí ahora. Con esto te ordenamos por cercanía.</p>
                 <div class="pf-map" id="pfMap"></div><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-act="pfhere">${I.target} Estoy en mi local</button><span class="hint" id="pfCoords"></span></div></div>`
             : `<div class="kcard gps" id="gpsCard"><div class="gps-head"><div><h3>Ubicación del food truck</h3><p id="gpsStatus">No estás compartiendo la ubicación.</p></div><button class="btn" id="gpsBtn" data-act="gps">Compartir ubicación</button></div>
-                <div class="gps-fields" style="margin-top:12px"><div class="field"><label for="gpsStop">Parada de hoy</label><input id="gpsStop" maxlength="60" placeholder="Ej. The Block"></div><div class="field"><label for="gpsHours">Horario</label><input id="gpsHours" maxlength="60" placeholder="Ej. 11 am – 8 pm"></div></div>
+                <div class="gps-fields" style="margin-top:12px"><div class="field"><label for="gpsStop">Parada de hoy</label><input id="gpsStop" maxlength="60" placeholder="Ej. The Block"></div></div>
                 <p class="hint" style="margin-top:10px">Deja OnRoute abierto en el celular o tableta del camión. La ubicación se actualiza sola y los clientes te ven abierto mientras compartes.</p></div>`}
+            <div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Horario</h4>
+              <p class="hint">Fuera de este horario OnRoute te muestra cerrado y no recibe pedidos. Hora de San Antonio.</p>
+              <div class="hgrid" id="pfHours"></div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-act="hcopy">Copiar el lunes a todos los días abiertos</button></div>
+              <p class="hint">Si un turno pasa de medianoche (ej. 6 pm a 2 am), pon la hora de cierre menor a la de apertura.</p></div>
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
@@ -1160,9 +1206,15 @@ Reglas:
         e.target.value = ""; paint(renderProf);
       });
       if (P.kind === "restaurant") setTimeout(drawPfMap, 30);
-      else { const st = $("#gpsStop"), hr = $("#gpsHours"); if (R.loc) { st.value = R.loc.stop || ""; hr.value = R.loc.hours || ""; } gpsUI(); }
+      else { const st = $("#gpsStop"); if (R.loc) st.value = R.loc.stop || ""; gpsUI(); }
     }
     $$("[data-pfkind]").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.pfkind === P.kind)));
+    const hg = $("#pfHours");
+    if (hg && hg.dataset.v !== JSON.stringify(P.hours)) {
+      hg.dataset.v = JSON.stringify(P.hours);
+      hg.innerHTML = WEEK.map(i => { const d = P.hours[i]; return `<div class="hrow ${d.closed ? "off" : ""}"><label class="hday"><input type="checkbox" data-hopen="${i}" ${d.closed ? "" : "checked"}> ${DAYS[i]}</label>
+        ${d.closed ? `<span class="hint">Cerrado</span>` : `<input type="time" data-ht="${i}" data-hk="open" value="${esc(d.open)}" aria-label="${DAYS[i]} abre"><span>a</span><input type="time" data-ht="${i}" data-hk="close" value="${esc(d.close)}" aria-label="${DAYS[i]} cierra">`}</div>`; }).join("");
+    }
     $("#pfLogo").innerHTML = logoHTML(R);
     const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta|no dio permiso|no está activado|No pudimos|no cargó|no es una imagen|demasiado grande|Se cortó|Se llenó/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
     const pc = $("#pfCoords"); if (pc) pc.textContent = typeof P.lat === "number" ? `Ubicación marcada (${P.lat.toFixed(4)}, ${P.lng.toFixed(4)})` : "Aún no marcas tu ubicación.";
@@ -1184,6 +1236,9 @@ Reglas:
     const P = S.pf;
     if (String(P.name).trim().length < 2) { S.pfMsg = "Falta el nombre del negocio."; paint(renderProf); return; }
     const upd = { name: P.name.trim().slice(0, 60), kind: P.kind, cuisine: P.cuisine.trim().slice(0, 60), description: P.description.trim().slice(0, 300), phone: P.phone.trim().slice(0, 30), address: P.address.trim().slice(0, 120), updatedAt: Date.now() };
+    const bad = P.hours.findIndex(d => !d.closed && (!okT(d.open) || !okT(d.close) || d.open === d.close));
+    if (bad >= 0) { S.pfMsg = `Falta revisar el horario del ${DAYS[bad].toLowerCase()}.`; paint(renderProf); return; }
+    upd.hours = { tz: TZ, days: P.hours.map(d => d.closed ? { closed: true } : { open: d.open, close: d.close }) };
     if (typeof P.lat === "number") { upd.lat = P.lat; upd.lng = P.lng; }
     try { await db.doc(`restaurants/${S.my.id}`).update(upd); S.pfDirty = false; S.pfMsg = "Perfil guardado."; S.pf = null; paint(renderPanel); }
     catch (e) { console.error("OnRoute: perfil", e); S.pfMsg = "No se pudo guardar. Revisa la conexión."; paint(renderProf); }
@@ -1205,7 +1260,7 @@ Reglas:
     if (!force && (now - lastSent < 15000 || (!moved && now - lastSent < 60000))) return;
     lastSent = now; lastPos = ll;
     try {
-      await db.doc(`restaurants/${S.my.id}`).update({ loc: { lat: ll.lat, lng: ll.lng, acc, updatedAt: now, sharing: true, stop: (($("#gpsStop") || {}).value || "").trim().slice(0, 60), hours: (($("#gpsHours") || {}).value || "").trim().slice(0, 60) }, updatedAt: now });
+      await db.doc(`restaurants/${S.my.id}`).update({ loc: { lat: ll.lat, lng: ll.lng, acc, updatedAt: now, sharing: true, stop: (($("#gpsStop") || {}).value || "").trim().slice(0, 60), hours: "" }, updatedAt: now });
       gpsUI(`Compartiendo · precisión ±${acc} m · ${new Date(now).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`, "on");
     } catch (e) { console.error("OnRoute: ubicación", e); gpsUI("No se pudo guardar la ubicación. Revisa la conexión.", "bad"); }
   }
@@ -1415,6 +1470,7 @@ Reglas:
     if (d.adm) { setStatus(d.id, d.adm); return; }
     if (d.act === "import") { importLegacy(); return; }
     if (d.act === "saveprof") { saveProf(); return; }
+    if (d.act === "hcopy") { pfEnsure(); const m = S.pf.hours[1]; if (m.closed) { toast("Primero abre el lunes."); return; } S.pf.hours = S.pf.hours.map(x => x.closed ? x : { open: m.open, close: m.close }); S.pfDirty = true; S.pfMsg = "Horario copiado. Toca Guardar perfil."; paint(renderProf); return; }
     if (d.act === "pfhere") { if (!navigator.geolocation) return toast("Este navegador no tiene GPS."); navigator.geolocation.getCurrentPosition(p => setPfPos(p.coords.latitude, p.coords.longitude), () => toast("No se pudo obtener tu ubicación."), { enableHighAccuracy: true, timeout: 15000 }); return; }
     if (d.pfkind) { pfEnsure(); S.pf.kind = d.pfkind; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el cambio."; paint(renderProf); return; }
     if (d.act === "gps") { watchId === null ? startGps() : stopGps(); return; }
@@ -1443,6 +1499,7 @@ Reglas:
     if (t.id === "noteInput") { S.note = t.value; return; }
     if (d.reg) { S.reg[d.reg] = t.value; if (d.reg === "name") { const s = $(".slug"); if (s) s.textContent = `Tu enlace: ${BASE}?r=${slugify(t.value) || "tu-negocio"}`; } return; }
     if (d.pf) { pfEnsure(); S.pf[d.pf] = t.value; S.pfDirty = true; return; }
+    if (d.ht !== undefined) { pfEnsure(); const day = S.pf.hours[Number(d.ht)]; if (okT(t.value)) { day[d.hk] = t.value; S.pfDirty = true; $("#pfHours").dataset.v = JSON.stringify(S.pf.hours); } return; }
     if (d.cfg) { meEnsure(); S.meCfg[d.cfg] = t.value; t.classList.remove("bad"); meTouch(); return; }
     if (d.xf) { meEnsure(); const k = Number(t.closest(".xrow").dataset.x); S.meExtras[k][d.xf] = t.value; t.classList.remove("bad"); meTouch(); return; }
     const box = t.closest && t.closest(".me-item");
@@ -1456,6 +1513,7 @@ Reglas:
   document.addEventListener("change", e => {
     const t = e.target, d = t.dataset;
     if (d.vari) { S.vsel[d.vari] = t.checked; paint(renderRest); return; }
+    if (d.hopen !== undefined) { pfEnsure(); S.pf.hours[Number(d.hopen)] = t.checked ? { open: "10:00", close: "18:00" } : { closed: true }; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el horario."; paint(renderProf); return; }
     if (d.photo !== undefined && t.type === "file") { onPhoto(t); return; }
     if (t.id === "aiIn") { onMenuPhotos(t); return; }
   });
@@ -1463,7 +1521,7 @@ Reglas:
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
   });
   window.addEventListener("beforeunload", e => { if (S.meDirty || watchId !== null) { e.preventDefault(); e.returnValue = ""; } });
-  setInterval(() => { if (S.route.name === "panel" && S.ktab === "orders" && S.my) paint(renderOrders); if (S.route.name === "rest" && S.R) paint(renderRest); }, 60000);
+  setInterval(() => { if (S.route.name === "panel" && S.ktab === "orders" && S.my) paint(renderOrders); if (S.route.name === "rest" && S.R) paint(renderRest); if (S.route.name === "home") paint(renderHome); }, 60000);
 
   if ("serviceWorker" in navigator && location.protocol === "https:") window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
   // Enlaces viejos de la primera versión

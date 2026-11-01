@@ -21,7 +21,7 @@ service cloud.firestore {
     // Datos del perfil que el dueño puede cambiar (nunca status ni ownerUid).
     function profileKeys() {
       return ['name','kind','cuisine','description','phone','address','lat','lng','logoUrl',
-              'paused','menuNote','variant','loc','updatedAt'];
+              'paused','menuNote','variant','loc','hours','updatedAt'];
     }
     function validProfile(d) {
       return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
@@ -29,6 +29,7 @@ service cloud.firestore {
         && (!('description' in d) || (d.description is string && d.description.size() <= 300))
         && (!('cuisine' in d) || (d.cuisine is string && d.cuisine.size() <= 60))
         && (!('paused' in d) || d.paused is bool)
+        && (!('hours' in d) || (d.hours is map && d.hours.days is list && d.hours.days.size() == 7))
         && (!('logoUrl' in d) || (d.logoUrl is string && d.logoUrl.size() <= 60000));
     }
 
