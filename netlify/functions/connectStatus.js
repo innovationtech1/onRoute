@@ -12,5 +12,5 @@ exports.handler = handler("connectStatus", async (body, event) => {
   if (!R.stripeAccount) return [200, { connected: false, ready: false }];
   const st = await acctStatus(R.stripeAccount);
   if (st.ready !== !!R.stripeReady) await ref.update({ stripeReady: st.ready });
-  return [200, { connected: true, ready: st.ready, pending: st.pending }];
+  return [200, { connected: true, ...st }];
 });

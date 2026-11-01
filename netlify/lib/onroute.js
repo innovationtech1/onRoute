@@ -95,11 +95,24 @@ function inHours(r) {
 const truckLive = r => !!(r.kind === "truck" && r.loc && r.loc.sharing && Date.now() - Number(r.loc.updatedAt || 0) < 15 * 60000);
 
 // Cuenta de Stripe del negocio (Accounts v2): lista para cobrar cuando la capacidad card_payments está activa.
+// Devuelve también qué falta, para que la guía del Perfil lo explique en palabras sencillas.
 async function acctStatus(id) {
   const a = await stripe().v2.core.accounts.retrieve(id, { include: ["configuration.merchant", "requirements"] });
   const cp = a.configuration && a.configuration.merchant && a.configuration.merchant.capabilities && a.configuration.merchant.capabilities.card_payments;
-  const due = (a.requirements && Array.isArray(a.requirements.entries) ? a.requirements.entries : []).length;
-  return { ready: !!(cp && cp.status === "active"), pending: due };
+  const entries = a.requirements && Array.isArray(a.requirements.entries) ? a.requirements.entries : [];
+  const missing = entries.slice(0, 12).map(e => ({
+    who: e.awaiting_action_from === "stripe" ? "stripe" : "user",
+    text: String(e.description || "").slice(0, 160),
+    codes: (Array.isArray(e.errors) ? e.errors : []).map(x => String(x.code || "")).filter(Boolean).slice(0, 4),
+    blocks: !!(e.impact && Array.isArray(e.impact.restricts_capabilities) && e.impact.restricts_capabilities.some(r => r && r.capability === "card_payments")),
+    due: e.minimum_deadline && e.minimum_deadline.status ? String(e.minimum_deadline.status) : "",
+  }));
+  return {
+    ready: !!(cp && cp.status === "active"),
+    cap: cp ? String(cp.status || "") : "",
+    reasons: cp && Array.isArray(cp.status_details) ? cp.status_details.map(d => String(d.code || "")).filter(Boolean) : [],
+    pending: missing.length, missing,
+  };
 }
 
 module.exports = { acctStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };

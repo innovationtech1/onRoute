@@ -754,7 +754,7 @@
     if (!S.user) { if (!S.authRole) S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.my) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${regHTML()}</div></div>`; return; }
     const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["promo", "Promos", I.tag], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
-    if (stripeBack && !S.stripeChecked) { S.stripeChecked = true; S.ktab = "prof"; S.stripeMsg = stripeBack === "back" ? "Revisando tu cuenta de Stripe…" : "El enlace de Stripe caducó. Toca el botón otra vez."; if (stripeBack === "back") stripeStatus(); }
+    if (stripeBack && !S.stripeChecked) { S.stripeChecked = true; S.ktab = "prof"; S.stripeMsg = stripeBack === "back" ? "Revisando tu cuenta de Stripe…" : "El enlace de Stripe caducó (duran unos minutos). Toca Continuar en Stripe para abrir uno nuevo."; if (stripeBack === "back") stripeStatus(); }
     if (!tabs.some(t => t[0] === S.ktab)) S.ktab = "orders";
     const key = S.my.id + "|" + tabs.length;
     if (v.dataset.built !== key) {
@@ -1352,8 +1352,8 @@ Reglas:
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-act="hcopy">Copiar el lunes a todos los días abiertos</button></div>
               <p class="hint">Si un turno pasa de medianoche (ej. 6 pm a 2 am), pon la hora de cierre menor a la de apertura.</p></div>
             ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Pagos con tarjeta</h4>
-              <p class="hint">Conecta tu cuenta de Stripe y tus clientes podrán pagar con tarjeta al pedir. El dinero llega directo a tu cuenta de banco; Stripe te cobra su comisión por cada pago y OnRoute no cobra nada.</p>
-              <div id="pfStripe"></div></div>` : ""}
+              <p class="hint">Tus clientes podrán pagar con tarjeta al pedir. El dinero llega directo a tu cuenta de banco; Stripe te cobra su comisión por cada pago y OnRoute no cobra nada.</p>
+              <div id="pfStripe" class="sg"></div></div>` : ""}
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
@@ -1380,13 +1380,8 @@ Reglas:
     }
     $("#pfLogo").innerHTML = logoHTML(R);
     const sp = $("#pfStripe");
-    if (sp) {
-      const st = R.stripeReady ? "ok" : R.stripeAccount ? "half" : "none";
-      sp.innerHTML = `<div class="stripe-st ${st}">${st === "ok" ? "✓ Conectado · ya aceptas tarjeta" : st === "half" ? "Falta terminar el registro en Stripe" : "Sin conectar"}</div>
-        ${st !== "ok" ? `<button class="btn" data-act="stripego" ${S.stripeBusy ? "disabled" : ""}>${S.stripeBusy ? "Abriendo Stripe…" : st === "half" ? "Terminar registro en Stripe" : "Conectar con Stripe"}</button>` : ""}
-        ${st !== "none" ? `<button class="btn sec sm" data-act="stripechk" ${S.stripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}
-        ${S.stripeMsg ? `<p class="hint">${esc(S.stripeMsg)}</p>` : ""}`;
-    }
+    if (sp) { const h = stripeGuideHTML(R); if (sp.dataset.h !== h) { const open = $$("details[data-sg]", sp).filter(d => d.open).map(d => d.dataset.sg); sp.innerHTML = h; sp.dataset.h = h; open.forEach(k => { const d = sp.querySelector(`details[data-sg="${k}"]`); if (d) d.open = true; }); } }
+    if (sp && R.stripeAccount && !R.stripeReady && !S.stripeInfo && !S.stripeBusy && !S.stripeAuto) { S.stripeAuto = true; setTimeout(() => stripeStatus(true), 0); }
     const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta|no dio permiso|no está activado|No pudimos|no cargó|no es una imagen|demasiado grande|Se cortó|Se llenó/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
     const pc = $("#pfCoords"); if (pc) pc.textContent = typeof P.lat === "number" ? `Ubicación marcada (${P.lat.toFixed(4)}, ${P.lng.toFixed(4)})` : "Aún no marcas tu ubicación.";
   }
@@ -1403,28 +1398,112 @@ Reglas:
     if (pfMap) { if (pfMarker) pfMarker.setLatLng([lat, lng]); else pfMarker = L.marker([lat, lng], { icon: pinIcon(S.my) }).addTo(pfMap); pfMap.setView([lat, lng], Math.max(pfMap.getZoom(), 16)); }
     paint(renderProf);
   }
+  // ---------------------------------------------------------------- guía para conectar Stripe
+  const SG_STEPS = ["Prepara tus datos", "Abre Stripe", "Llena tus datos", "Stripe revisa", "Conectado"];
+  // Traduce lo que Stripe pide (en inglés) a algo que el dueño entienda y sepa resolver.
+  function sgNeed(m) {
+    const t = `${m.text} ${(m.codes || []).join(" ")}`.toLowerCase();
+    const L = [
+      [/document|selfie|photo/, "Foto de tu identificación (licencia o pasaporte)", "Ten a la mano tu licencia o pasaporte; Stripe te pide tomarle foto con el celular."],
+      [/id[_ ]number|ssn|social security|tax[_ ]id|\bein\b|tin\b/, "Número de seguro social (SSN) o EIN", "Escríbelo completo, sin guiones. Si tu negocio no tiene EIN, usa tu SSN."],
+      [/statement[_ ]descriptor/, "Descripción del cargo", "Debe parecerse al nombre comercial del negocio (ej. TORTAS TORTUGA)."],
+      [/external[_ ]account|bank|payout/, "Cuenta de banco", "Conecta la cuenta de cheques donde quieres recibir tu dinero."],
+      [/dob|birth/, "Fecha de nacimiento", "La del dueño o representante del negocio."],
+      [/address|postal|street/, "Dirección", "Pon la dirección real del negocio o del dueño (no apartado postal)."],
+      [/phone/, "Teléfono", "Un número donde Stripe te pueda contactar."],
+      [/email/, "Verificar tu correo", "Abre el correo que te mandó Stripe y toca Verificar."],
+      [/url|website|web_presence/, "Sitio web del negocio", "Puedes dejar el enlace de tu página en OnRoute."],
+      [/tos|terms/, "Aceptar los términos de Stripe", "Revisa y acepta los términos al final del registro."],
+      [/product[_ ]description|industry|mcc/, "Descripción del negocio", "Ej. Venta de comida para llevar. Categoría: Restaurantes."],
+      [/name/, "Nombre legal", "Tal como aparece en tu identificación."],
+    ];
+    const f = L.find(x => x[0].test(t));
+    return f ? { title: f[1], tip: f[2] } : { title: "Otro dato que pide Stripe", tip: m.text || "" };
+  }
+  function stripePhase(R) {
+    const I = S.stripeInfo;
+    if (R.stripeReady || (I && I.ready)) return 4;
+    if (!R.stripeAccount) return 0;
+    if (I && I.missing && I.missing.some(m => m.who === "user")) return 2;
+    if (I) return 3;
+    return 2;
+  }
+  function stripeGuideHTML(R) {
+    const ph = stripePhase(R), I = S.stripeInfo || {}, E = S.stripeErr, busy = S.stripeBusy;
+    const rejected = (I.reasons || []).some(c => /^rejected|unsupported/.test(c));
+    const bar = `<ol class="sg-bar" aria-label="Avance">${SG_STEPS.map((t, i) => `<li class="${i < ph || ph === 4 ? "done" : i === ph ? "now" : ""}"><span>${i < ph || ph === 4 ? "✓" : i + 1}</span><em>${t}</em></li>`).join("")}</ol>
+      <p class="sg-step"><b>Paso ${Math.min(ph + 1, 5)} de 5:</b> ${SG_STEPS[ph]}</p>`;
+    const err = E ? `<div class="sg-err" role="alert"><b>${esc(E.title)}</b><span>${esc(E.what)}</span>${E.detail ? `<details><summary>Detalle técnico</summary><code>${esc(E.detail)}</code></details>` : ""}</div>` : "";
+    const msg = S.stripeMsg ? `<p class="hint">${esc(S.stripeMsg)}</p>` : "";
+    const help = `<details class="sg-help" data-sg="help"><summary>Ayuda pantalla por pantalla</summary><ul>
+        <li><b>Correo:</b> usa uno que <u>no</u> tenga cuenta de Stripe. Con Gmail puedes agregar +negocio antes de la arroba (ej. tunombre+tacos@gmail.com) y te llega a la misma bandeja.</li>
+        <li><b>Contraseña y verificación:</b> Stripe te pide una contraseña de 10+ caracteres y un código por mensaje de texto. Guarda el código de respaldo.</li>
+        <li><b>Tipo de empresa:</b> si no tienes EIN, elige <i>empresa no registrada</i> o <i>individual</i>; te pedirá tu SSN.</li>
+        <li><b>Sector:</b> Servicios de alimentos y bebidas → Restaurantes.</li>
+        <li><b>Sitio web:</b> deja el enlace de OnRoute que ya aparece.</li>
+        <li><b>Descripción del cargo:</b> pon el nombre de tu negocio, igual al nombre comercial (Stripe marca error si no coincide).</li>
+        <li><b>Banco:</b> conecta la cuenta de cheques donde quieres recibir tu dinero.</li>
+        <li><b>Opciones extra</b> (protección contra fraude, clima, impuestos): puedes omitirlas.</li>
+        <li><b>Al final:</b> revisa que nada diga “incompleto”, toca Aceptar y verifica el correo que te manda Stripe.</li></ul></details>`;
+    if (ph === 4) return `${bar}<div class="sg-ok">✓ Conectado · ya aceptas tarjeta</div><p class="hint">Tus clientes ya ven <b>Tarjeta ahora</b> al pedir. Tus ventas y depósitos los ves en tu panel de Stripe (dashboard.stripe.com).</p>${msg}`;
+    if (rejected) return `${bar}${err}<div class="sg-err"><b>Stripe no aprobó la cuenta</b><span>Stripe no puede procesar pagos para esta cuenta. Entra a dashboard.stripe.com con el correo que usaste o contacta al soporte de Stripe para saber el motivo. Mientras, tus clientes pueden pagar al recoger.</span></div>`;
+    if (ph === 0) return `${bar}${err}
+      <div class="sg-box"><b>Antes de empezar, ten a la mano:</b><ul class="sg-list">
+        <li>Un <b>correo</b> que no tenga cuenta de Stripe</li>
+        <li>Tu <b>SSN</b> o el <b>EIN</b> del negocio</li>
+        <li>Tu <b>licencia o pasaporte</b> (para la foto)</li>
+        <li>Los datos de tu <b>cuenta de banco</b> (de cheques)</li>
+        <li>La <b>dirección</b> y el <b>teléfono</b> del negocio</li></ul>
+        <p class="hint">Toma unos 10 minutos. Si te sales a medias, aquí mismo puedes continuar donde te quedaste.</p></div>
+      <button class="btn" data-act="stripego" ${busy ? "disabled" : ""}>${busy ? "Abriendo Stripe…" : "Ya tengo todo · Conectar con Stripe"}</button>${msg}${help}`;
+    const mine = (I.missing || []).filter(m => m.who === "user"), theirs = (I.missing || []).filter(m => m.who === "stripe");
+    const list = mine.length ? `<div class="sg-box"><b>Stripe todavía necesita:</b><ul class="sg-need">${mine.map(m => { const n = sgNeed(m); return `<li><b>${esc(n.title)}</b>${n.tip ? `<span>${esc(n.tip)}</span>` : ""}</li>`; }).join("")}</ul></div>` : "";
+    if (ph === 2) return `${bar}${err}${list || `<div class="sg-box"><b>Termina tu registro en Stripe.</b><span class="hint">Si ya lo terminaste, toca Revisar estado.</span></div>`}
+      <div class="sg-btns"><button class="btn" data-act="stripego" ${busy ? "disabled" : ""}>${busy ? "Abriendo Stripe…" : "Continuar en Stripe"}</button><button class="btn sec sm" data-act="stripechk" ${busy ? "disabled" : ""}>${busy ? "Revisando…" : "Revisar estado"}</button></div>${msg}${help}`;
+    return `${bar}${err}<div class="sg-box"><b>Stripe está revisando tus datos.</b><span class="hint">Normalmente tarda unos minutos (a veces hasta un día). Esta página revisa sola cada medio minuto mientras la tengas abierta.${theirs.length ? ` Stripe está verificando: ${esc(theirs.map(m => sgNeed(m).title.toLowerCase()).join(", "))}.` : ""}</span></div>
+      <div class="sg-btns"><button class="btn sec sm" data-act="stripechk" ${busy ? "disabled" : ""}>${busy ? "Revisando…" : "Revisar estado"}</button><button class="btn sec sm" data-act="stripego" ${busy ? "disabled" : ""}>Abrir Stripe</button></div>${msg}`;
+  }
+  // Errores del servidor de pagos en palabras sencillas, con el detalle técnico aparte.
+  function stripeErrOf(e) {
+    const m = String((e && e.message) || ""), st = e && e.status, d = (e && e.detail) || "";
+    if (m === "Failed to fetch" || /NetworkError|Load failed/.test(m)) return { title: "No pudimos comunicarnos con el servidor de pagos", what: "Revisa tu internet e intenta otra vez en un minuto. Si sigue pasando, avísale al soporte de OnRoute.", detail: m };
+    if (st === 401) return { title: "Tu sesión venció", what: "Cierra sesión, vuelve a entrar con la cuenta del negocio e intenta otra vez.", detail: d };
+    if (st === 403) return { title: "Esta cuenta no es la dueña del negocio", what: "Entra con la cuenta con la que registraste el negocio.", detail: d };
+    if (/STRIPE_SECRET_KEY|FIREBASE_SERVICE_ACCOUNT|cuenta de servicio/.test(d)) return { title: "El servidor de pagos no está configurado", what: "Esto no es algo que debas arreglar tú. Avísale al soporte de OnRoute.", detail: d };
+    if (/^Stripe:/.test(d)) return { title: "Stripe no aceptó la solicitud", what: "Intenta otra vez en un momento. Si se repite, avísale al soporte de OnRoute con el detalle de abajo.", detail: d };
+    return { title: "Algo falló al conectar con Stripe", what: "Intenta otra vez. Si se repite, avísale al soporte de OnRoute con el detalle de abajo.", detail: d || m };
+  }
   async function payApi(path, body) {
     const headers = { "Content-Type": "application/json" };
     if (S.user) headers.Authorization = "Bearer " + (await S.user.getIdToken());
     const r = await fetch(window.ONROUTE_API + "/" + path, { method: "POST", headers, body: JSON.stringify(body) });
     const j = await r.json().catch(() => ({}));
-    if (!r.ok) throw new Error((j.error || "No se pudo conectar con el servidor de pagos.") + (j.detail ? ` Detalle: ${j.detail}` : ""));
+    if (!r.ok) { const er = new Error((j.error || "No se pudo conectar con el servidor de pagos.") + (j.detail ? ` Detalle: ${j.detail}` : "")); er.status = r.status; er.detail = j.detail || j.error || ""; throw er; }
     return j;
   }
   async function stripeGo() {
-    S.stripeBusy = true; S.stripeMsg = ""; paint(renderProf);
-    try { const j = await payApi("connectStart", { rid: S.my.id }); location.href = j.url; }
-    catch (e) { S.stripeBusy = false; S.stripeMsg = e.message === "Failed to fetch" ? "No se pudo conectar con el servidor de pagos. Revisa tu conexión." : e.message; paint(renderProf); }
+    S.stripeBusy = true; S.stripeMsg = ""; S.stripeErr = null; paint(renderProf);
+    try { const j = await payApi("connectStart", { rid: S.my.id }); S.stripeMsg = "Abriendo Stripe…"; location.href = j.url; }
+    catch (e) { console.error("OnRoute: Stripe", e); S.stripeBusy = false; S.stripeErr = stripeErrOf(e); paint(renderProf); }
   }
-  async function stripeStatus() {
-    S.stripeBusy = true; paint(renderPanel);
+  let sgTimer = null, sgUntil = 0;
+  async function stripeStatus(quiet) {
+    S.stripeBusy = true; if (!quiet) S.stripeErr = null; paint(renderPanel);
     try {
       for (let i = 0; i < 20 && !S.my; i++) await new Promise(r => setTimeout(r, 300));
-      if (!S.my) throw new Error("Inicia sesión con la cuenta del negocio.");
+      if (!S.my) throw Object.assign(new Error("sesión"), { status: 401 });
       const j = await payApi("connectStatus", { rid: S.my.id });
-      S.stripeMsg = j.ready ? "¡Listo! Tus clientes ya pueden pagar con tarjeta." : j.connected ? "Stripe todavía necesita algunos datos tuyos o está revisándolos. Si ya terminaste, puede tardar unos minutos." : "";
-    } catch (e) { S.stripeMsg = e.message === "Failed to fetch" ? "No se pudo conectar con el servidor de pagos." : e.message; }
+      S.stripeInfo = j; S.stripeErr = null;
+      S.stripeMsg = j.ready ? "¡Listo! Tus clientes ya pueden pagar con tarjeta." : "";
+      if (j.ready) toast("Stripe conectado: ya aceptas tarjeta.");
+    } catch (e) { console.error("OnRoute: Stripe", e); S.stripeErr = stripeErrOf(e); S.stripeMsg = ""; }
     S.stripeBusy = false; paint(renderPanel);
+    // Mientras Stripe revisa, se vuelve a preguntar solo cada 30 s (hasta 10 min) si el Perfil sigue abierto.
+    clearTimeout(sgTimer);
+    if (S.stripeInfo && !S.stripeInfo.ready && S.my && S.my.stripeAccount && !S.stripeErr) {
+      if (!sgUntil) sgUntil = Date.now() + 10 * 60000;
+      if (Date.now() < sgUntil) sgTimer = setTimeout(() => { if (S.route.name === "panel" && S.ktab === "prof" && !document.hidden) stripeStatus(true); }, 30000);
+    }
   }
   async function saveProf() {
     const P = S.pf;
