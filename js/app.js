@@ -83,7 +83,8 @@
       if (window.ONROUTE_APPCHECK_SITE_KEY && firebase.appCheck) {
         try {
           if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; // pruebas locales
-          firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(window.ONROUTE_APPCHECK_SITE_KEY), true);
+          const P = window.ONROUTE_APPCHECK_ENTERPRISE ? firebase.appCheck.ReCaptchaEnterpriseProvider : firebase.appCheck.ReCaptchaV3Provider;
+          firebase.appCheck().activate(new P(window.ONROUTE_APPCHECK_SITE_KEY), true);
         } catch (e) { console.warn("OnRoute: App Check", e); }
       }
       db = firebase.firestore();
@@ -1080,7 +1081,8 @@
       if (window.ONROUTE_APPCHECK_SITE_KEY) {
         try {
           const acm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app-check.js`);
-          acm.initializeAppCheck(app, { provider: new acm.ReCaptchaV3Provider(window.ONROUTE_APPCHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+          const P = window.ONROUTE_APPCHECK_ENTERPRISE ? acm.ReCaptchaEnterpriseProvider : acm.ReCaptchaV3Provider;
+          acm.initializeAppCheck(app, { provider: new P(window.ONROUTE_APPCHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
         } catch (e) { console.warn("OnRoute: App Check (IA)", e); }
       }
     }
