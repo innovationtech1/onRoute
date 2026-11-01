@@ -79,6 +79,13 @@
   try {
     if (window.FIREBASE_CONFIG && window.firebase) {
       firebase.initializeApp(window.FIREBASE_CONFIG);
+      // App Check: se activa solo cuando hay llave de reCAPTCHA en firebase-config.js.
+      if (window.ONROUTE_APPCHECK_SITE_KEY && firebase.appCheck) {
+        try {
+          if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; // pruebas locales
+          firebase.appCheck().activate(new firebase.appCheck.ReCaptchaV3Provider(window.ONROUTE_APPCHECK_SITE_KEY), true);
+        } catch (e) { console.warn("OnRoute: App Check", e); }
+      }
       db = firebase.firestore();
       auth = firebase.auth();
       try { storage = firebase.storage(); } catch (e) { storage = null; }
@@ -1067,7 +1074,16 @@
     if (!aiMods) {
       const appm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app.js`);
       const aim = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-ai.js`);
-    const app = appm.getApps().find(a => a.name === "onroute-ai") || appm.initializeApp(window.FIREBASE_CONFIG, "onroute-ai");
+    let app = appm.getApps().find(a => a.name === "onroute-ai");
+    if (!app) {
+      app = appm.initializeApp(window.FIREBASE_CONFIG, "onroute-ai");
+      if (window.ONROUTE_APPCHECK_SITE_KEY) {
+        try {
+          const acm = await import(`https://www.gstatic.com/firebasejs/${AI_V}/firebase-app-check.js`);
+          acm.initializeAppCheck(app, { provider: new acm.ReCaptchaV3Provider(window.ONROUTE_APPCHECK_SITE_KEY), isTokenAutoRefreshEnabled: true });
+        } catch (e) { console.warn("OnRoute: App Check (IA)", e); }
+      }
+    }
     aiMods = { aim, ai: aim.getAI(app, { backend: new aim.GoogleAIBackend() }) };
     }
     aiModels[name] = aiMods.aim.getGenerativeModel(aiMods.ai, { model: name, generationConfig: { responseMimeType: "application/json", temperature: 0.1 } });
