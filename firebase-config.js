@@ -21,4 +21,4 @@ window.ONROUTE_STRIPE_TEST = true;
 
 // App Check (reCAPTCHA v3): comprueba que quien usa tu Firebase es la app de OnRoute y no otro programa.
 // Esta llave de sitio NO es secreta (la secreta va en la consola de Firebase). Vacío = App Check apagado.
-window.ONROUTE_APPCHECK_SITE_KEY = "";
+window.ONROUTE_APPCHECK_SITE_KEY = "6LfXegsuAAAAAH1jUzGU_umhaZgkXwFcGNvd4HI_";
