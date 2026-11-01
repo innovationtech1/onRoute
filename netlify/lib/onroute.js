@@ -69,9 +69,10 @@ function why(e) {
 // Usuario con sesión iniciada (la página manda su token de Firebase).
 async function userOf(event) {
   const m = /^Bearer (.+)$/.exec(String((event.headers && (event.headers.authorization || event.headers.Authorization)) || ""));
-  if (!m) return null;
+  if (!m) { event.authErr = "La página no mandó la sesión."; return null; }
   db();
-  try { return await require("firebase-admin/auth").getAuth().verifyIdToken(m[1]); } catch (e) { return null; }
+  try { return await require("firebase-admin/auth").getAuth().verifyIdToken(m[1]); }
+  catch (e) { console.warn("userOf", e && e.code, e && e.message); event.authErr = `${(e && e.code) || ""} ${String((e && e.message) || e).slice(0, 220)}`.trim(); return null; }
 }
 
 // ---- Horario (misma lógica que la página) ----

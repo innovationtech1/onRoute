@@ -4,7 +4,7 @@ const { db, stripe, handler, userOf, SITE, RID } = require("../lib/onroute");
 
 exports.handler = handler("connectStart", async (body, event) => {
   const user = await userOf(event);
-  if (!user) return [401, { error: "Inicia sesión con la cuenta del negocio." }];
+  if (!user) return [401, { error: "Inicia sesión con la cuenta del negocio.", detail: event.authErr || "" }];
   const rid = String(body.rid || "");
   if (!RID.test(rid)) return [400, { error: "Negocio no válido." }];
   const ref = db().doc(`restaurants/${rid}`), snap = await ref.get();
