@@ -2,66 +2,103 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    function isOwner() {
-      return request.auth != null
+    function signedIn() { return request.auth != null; }
+
+    // Administrador de OnRoute (Hector): la cuenta guardada en meta/owner.
+    function isAdmin() {
+      return signedIn()
         && exists(/databases/$(database)/documents/meta/owner)
         && get(/databases/$(database)/documents/meta/owner).data.uid == request.auth.uid;
     }
 
-    // Dueño de la cocina: la primera cuenta que lo reclama. No se puede cambiar desde la app.
+    function rest(rid) { return get(/databases/$(database)/documents/restaurants/$(rid)).data; }
+    function isOwnerOf(rid) {
+      return signedIn()
+        && exists(/databases/$(database)/documents/restaurants/$(rid))
+        && rest(rid).ownerUid == request.auth.uid;
+    }
+
+    // Datos del perfil que el dueño puede cambiar (nunca status ni ownerUid).
+    function profileKeys() {
+      return ['name','kind','cuisine','description','phone','address','lat','lng','logoUrl',
+              'paused','menuNote','variant','loc','updatedAt'];
+    }
+    function validProfile(d) {
+      return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
+        && d.kind in ['truck','restaurant']
+        && (!('description' in d) || (d.description is string && d.description.size() <= 300))
+        && (!('cuisine' in d) || (d.cuisine is string && d.cuisine.size() <= 60))
+        && (!('paused' in d) || d.paused is bool);
+    }
+
+    // ---------- Administración ----------
     match /meta/owner {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null
+      allow read: if signedIn();
+      allow create: if signedIn()
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == request.auth.uid;
       allow update, delete: if false;
     }
 
-    // Pedidos: el cliente crea el suyo y puede seguirlo por su número;
-    // solo el dueño ve la lista completa y cambia el estado.
+    // ---------- Negocios ----------
+    // restaurants/{rid}: rid es el enlace del negocio (ej. "tortas-tortuga").
+    match /restaurants/{rid} {
+      allow get, list: if resource.data.status == 'active'
+        || (signedIn() && resource.data.ownerUid == request.auth.uid)
+        || isAdmin();
+      // Cualquiera con cuenta puede registrar su negocio; queda "pending" hasta que el admin lo aprueba.
+      allow create: if signedIn()
+        && rid.matches('^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$')
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.status == 'pending'
+        && request.resource.data.keys().hasOnly(profileKeys().concat(['ownerUid','status','createdAt']))
+        && validProfile(request.resource.data);
+      allow update: if (signedIn() && resource.data.ownerUid == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(profileKeys())
+          && validProfile(request.resource.data))
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['pending','active','suspended']);
+      allow delete: if isAdmin();
+
+      // Menú del negocio: todos lo leen, solo el dueño lo cambia.
+      match /menu/{doc} {
+        allow read: if true;
+        allow write: if isOwnerOf(rid)
+          && request.resource.data.keys().hasOnly(['items','updatedAt'])
+          && request.resource.data.items is list
+          && request.resource.data.items.size() <= 100;
+      }
+
+      // Pedidos: el cliente crea el suyo (pago al recoger) y lo sigue por su número;
+      // solo el dueño ve la lista y cambia el estado. Los pedidos con tarjeta los crea el servidor.
+      match /orders/{oid} {
+        allow get: if true;
+        allow list: if isOwnerOf(rid);
+        allow create: if rest(rid).status == 'active'
+          && !(('paused' in rest(rid)) && rest(rid).paused == true)
+          && request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay'])
+          && request.resource.data.status == 'new'
+          && request.resource.data.pay == 'cash'
+          && request.resource.data.who is string && request.resource.data.who.size() >= 1 && request.resource.data.who.size() <= 40
+          && request.resource.data.items is list && request.resource.data.items.size() <= 30
+          && request.resource.data.total is number && request.resource.data.total < 1000;
+        allow update: if isOwnerOf(rid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['new','prep','ready','done'];
+        allow delete: if isOwnerOf(rid);
+      }
+    }
+
+    // ---------- Datos de la versión anterior (solo Tortas Tortuga) ----------
+    // Se conservan para poder importarlos al nuevo formato. El admin los lee; nadie más los cambia.
     match /orders/{id} {
       allow get: if true;
-      allow list: if isOwner();
-      // Desde la página solo se crean pedidos que se pagan al recoger.
-      // Los pedidos con tarjeta los crea el servidor de pagos (Cloud Functions), que no pasa por estas reglas.
-      allow create: if request.resource.data.keys().hasOnly(['num','who','items','total','status','pickup','createdAt','pay'])
-        && request.resource.data.status == 'new'
-        && request.resource.data.pay == 'cash'
-        && request.resource.data.who is string && request.resource.data.who.size() <= 40
-        && request.resource.data.items is list && request.resource.data.items.size() <= 30
-        && request.resource.data.total is number && request.resource.data.total < 1000;
-      allow update: if isOwner()
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
-        && request.resource.data.status in ['new','prep','ready','done'];
-      allow delete: if isOwner();
+      allow list: if isAdmin();
+      allow write: if false;
     }
-
-    // Botón de pausar pedidos en línea: todos lo leen, solo el dueño lo cambia.
-    match /settings/truck {
+    match /settings/{doc} {
       allow read: if true;
-      allow write: if isOwner()
-        && request.resource.data.keys().hasOnly(['paused'])
-        && request.resource.data.paused is bool;
-    }
-
-    // Ubicación GPS del camión: todos la ven, solo el dueño la cambia.
-    match /settings/location {
-      allow read: if true;
-      allow write: if isOwner()
-        && request.resource.data.keys().hasOnly(['lat','lng','acc','updatedAt','stop','hours','sharing'])
-        && request.resource.data.lat is number && request.resource.data.lng is number
-        && request.resource.data.stop is string && request.resource.data.stop.size() <= 60
-        && request.resource.data.hours is string && request.resource.data.hours.size() <= 60
-        && request.resource.data.sharing is bool;
-    }
-
-    // Menú: todos lo leen, solo el dueño lo cambia.
-    match /settings/menu {
-      allow read: if true;
-      allow write: if isOwner()
-        && request.resource.data.keys().hasOnly(['items','updatedAt'])
-        && request.resource.data.items is list
-        && request.resource.data.items.size() <= 60;
+      allow write: if false;
     }
   }
 }

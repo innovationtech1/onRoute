@@ -1,8 +1,8 @@
 {
   "id": "./",
-  "name": "OnRoute · Tortas Tortuga",
+  "name": "OnRoute · Comida cerca de ti",
   "short_name": "OnRoute",
-  "description": "Pide tus tortas para llevar sin filas y ve dónde está el camión.",
+  "description": "Food trucks y restaurantes cerca de ti. Pide directo, sin comisiones.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

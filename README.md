@@ -1,10 +1,20 @@
-# OnRoute
+# OnRoute by InnovationTECH
 
-Demo de **OnRoute by InnovationTECH**: app de pedidos para llevar para food trucks en San Antonio, TX, con el menú de Tortas Tortuga.
+Plataforma donde food trucks y restaurantes publican su menú con fotos y reciben pedidos directos, sin comisiones de apps de delivery. Los clientes ven los negocios más cercanos en lista y en mapa.
 
-- App del cliente: menú, combos A/B/C, carrito, pago de prueba y seguimiento del pedido.
-- Tableta de cocina: pedidos nuevos, en preparación y listos, y botón para pausar pedidos en línea.
+## Partes
+- **Explorar** (`/`): negocios publicados, ordenados por cercanía, con búsqueda, filtros y mapa.
+- **Página del negocio** (`/?r=<enlace>`): menú con fotos, carrito, pedido para llevar y seguimiento en vivo.
+- **Mi negocio** (`/#panel`): registro, pedidos, menú con fotos, reportes, perfil, GPS (food trucks), enlace y QR.
+- **Negocios** (solo administrador): aprobar o suspender negocios.
 
-En esta versión los pedidos se guardan solo en la pantalla donde se hacen. El siguiente paso es conectarlo a Firebase para que pasen del celular del cliente a la tableta de cocina.
+## Tecnología
+HTML, CSS y JavaScript sin compilar (GitHub Pages) · Firebase Authentication, Firestore y Storage · Leaflet + OpenStreetMap · Cloud Functions + Stripe para pagos con tarjeta (ver `PAGOS.md`).
 
-Pago de prueba: no se cobra nada.
+## Datos (Firestore)
+- `restaurants/{enlace}`: perfil, `ownerUid`, `status` (`pending`/`active`/`suspended`), ubicación (`lat`/`lng` o `loc` del GPS).
+- `restaurants/{enlace}/menu/main`: platillos con fotos y opciones.
+- `restaurants/{enlace}/orders/{id}`: pedidos.
+- `meta/owner`: cuenta del administrador.
+
+Reglas: `firestore.rules` y `storage.rules`.

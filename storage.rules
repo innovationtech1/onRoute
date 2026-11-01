@@ -1,0 +1,17 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    // Fotos de cada negocio: todos las ven, solo el dueño del negocio las sube o borra.
+    match /restaurants/{rid}/{file} {
+      function isOwner() {
+        return request.auth != null
+          && firestore.get(/databases/(default)/documents/restaurants/$(rid)).data.ownerUid == request.auth.uid;
+      }
+      allow read: if true;
+      allow create, update: if isOwner()
+        && request.resource.size < 3 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+      allow delete: if isOwner();
+    }
+  }
+}
