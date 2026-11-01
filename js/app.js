@@ -801,8 +801,8 @@
     const D = S.meDraft, C = S.meCfg;
     const cats = [...new Set(D.map(m => m.cat).filter(Boolean).concat(["Platillos", "Bebidas", "Postres"]))];
     el.innerHTML = `<div class="ptitle"><h3>Menú</h3><p>Agrega tus platillos con foto, precio y opciones. Los clientes ven los cambios al tocar Guardar.</p></div>
-      <div class="kcard ai-card"><div><h4>Llenar el menú con una foto</h4><p class="hint">Toma foto a tu menú impreso, volante o pizarrón (hasta 4 fotos) y OnRoute escribe los platillos y precios por ti. Después solo revisas y guardas.</p></div>
-        <label class="btn green ${S.aiBusy ? "busy" : ""}" for="aiIn">${ic('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>')}<span>${S.aiBusy ? "Leyendo tu menú…" : "Subir foto del menú"}</span><input type="file" id="aiIn" accept="image/*" multiple ${S.aiBusy ? "disabled" : ""}></label>
+      <div class="kcard ai-card"><div><h4>Llenar el menú con una foto</h4><p class="hint">Sube fotos de tu menú impreso, volante o pizarrón, o el PDF de tu menú (hasta 4 archivos), y OnRoute escribe los platillos y precios por ti. Después solo revisas y guardas.</p></div>
+        <label class="btn green ${S.aiBusy ? "busy" : ""}" for="aiIn">${ic('<path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/>')}<span>${S.aiBusy ? "Leyendo tu menú…" : "Subir foto o PDF del menú"}</span><input type="file" id="aiIn" accept="image/*,application/pdf,.pdf" multiple ${S.aiBusy ? "disabled" : ""}></label>
         ${S.aiMsg ? `<p class="${S.aiCls || "hint"}" role="status">${esc(S.aiMsg)}</p>` : ""}</div>
       <div class="kcard"><h4>Ajustes del menú</h4><div class="me-cfg">
         <input id="cfgNote" data-cfg="menuNote" maxlength="140" value="${esc(C.menuNote)}" placeholder="Nota (ej. Combo incluye refresco. Precios con impuesto incluido.)" aria-label="Nota del menú">
@@ -871,7 +871,7 @@
     aiModel = aim.getGenerativeModel(ai, { model: "gemini-2.5-flash", generationConfig: { responseMimeType: "application/json", temperature: 0.1 } });
     return aiModel;
   }
-  const MENU_PROMPT = `Transcribe el menú de restaurante que aparece en las fotos. Responde SOLO con JSON, con esta forma exacta:
+  const MENU_PROMPT = `Transcribe el menú de restaurante que aparece en las fotos o documentos PDF adjuntos. Responde SOLO con JSON, con esta forma exacta:
 {"note":"","items":[{"name":"","category":"","description":"","options":[{"label":"","detail":"","price":0}]}]}
 Reglas:
 - name: nombre del platillo tal como aparece.
@@ -889,7 +889,16 @@ Reglas:
     S.aiBusy = true; S.aiMsg = `Leyendo ${files.length > 1 ? "tus " + files.length + " fotos" : "tu menú"}… puede tardar unos segundos.`; S.aiCls = ""; paint(renderMenuEd);
     try {
       const parts = [MENU_PROMPT];
-      for (const f of files) { let b; try { b = await resizeImage(f, 1600); } catch (e) { b = f; } parts.push({ inlineData: { data: await blobToB64(b), mimeType: b.type || "image/jpeg" } }); }
+      for (const f of files) {
+        if (f.type === "application/pdf" || /\.pdf$/i.test(f.name || "")) {
+          if (f.size > 12 * 1024 * 1024) throw new Error("pdfgrande");
+          parts.push({ inlineData: { data: await blobToB64(f), mimeType: "application/pdf" } });
+          continue;
+        }
+        if (f.type && !/^image\//.test(f.type)) throw new Error("tipoarchivo");
+        let b; try { b = await resizeImage(f, 1600); } catch (e) { b = f; }
+        parts.push({ inlineData: { data: await blobToB64(b), mimeType: b.type || "image/jpeg" } });
+      }
       const limit = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
       const model = await limit(menuModel(), 20000);
       const res = await limit(model.generateContent(parts), 90000);
@@ -913,7 +922,9 @@ Reglas:
       console.error("OnRoute: leer menú", e);
       const m = String((e && e.message) || "") + " " + String((e && e.code) || "");
       S.aiCls = "err";
-      S.aiMsg = /vacio/.test(m) ? "No encontramos platillos en la foto. Prueba con una foto más cerca, derecha y con buena luz."
+      S.aiMsg = /pdfgrande/.test(m) ? "Ese PDF es muy pesado (más de 12 MB). Prueba con un PDF más ligero o con fotos de cada página."
+        : /tipoarchivo/.test(m) ? "Ese archivo no es una foto ni un PDF."
+        : /vacio/.test(m) ? "No encontramos platillos en la foto. Prueba con una foto más cerca, derecha y con buena luz."
         : /formato/.test(m) ? "No pudimos entender el menú de la foto. Intenta otra vez o con una foto más clara."
         : /api-not-enabled|not been used|disabled|PERMISSION_DENIED|403|firebasevertexai|firebaseml|generativelanguage/i.test(m) ? "La lectura de menús todavía no está activada en Firebase. Activa Firebase AI Logic (Gemini Developer API) en la consola y vuelve a intentar."
         : /quota|429|RESOURCE_EXHAUSTED/i.test(m) ? "Se llegó al límite de lecturas por ahora. Espera un minuto e intenta otra vez."
