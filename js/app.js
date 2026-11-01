@@ -890,8 +890,9 @@ Reglas:
     try {
       const parts = [MENU_PROMPT];
       for (const f of files) { let b; try { b = await resizeImage(f, 1600); } catch (e) { b = f; } parts.push({ inlineData: { data: await blobToB64(b), mimeType: b.type || "image/jpeg" } }); }
-      const model = await menuModel();
-      const res = await model.generateContent(parts);
+      const limit = (pr, ms) => Promise.race([pr, new Promise((_, rej) => setTimeout(() => rej(new Error("timeout")), ms))]);
+      const model = await limit(menuModel(), 20000);
+      const res = await limit(model.generateContent(parts), 90000);
       const txt = res.response.text();
       let j = null; try { j = JSON.parse(txt); } catch (e) { const mm = txt.match(/\{[\s\S]*\}/); if (mm) j = JSON.parse(mm[0]); }
       if (!j || !Array.isArray(j.items)) throw new Error("formato");
@@ -916,6 +917,7 @@ Reglas:
         : /formato/.test(m) ? "No pudimos entender el menú de la foto. Intenta otra vez o con una foto más clara."
         : /api-not-enabled|not been used|disabled|PERMISSION_DENIED|403|firebasevertexai|firebaseml|generativelanguage/i.test(m) ? "La lectura de menús todavía no está activada en Firebase. Activa Firebase AI Logic (Gemini Developer API) en la consola y vuelve a intentar."
         : /quota|429|RESOURCE_EXHAUSTED/i.test(m) ? "Se llegó al límite de lecturas por ahora. Espera un minuto e intenta otra vez."
+        : /timeout/.test(m) ? "El lector de menús tardó demasiado en responder. Intenta otra vez; si se repite, prueba con una sola foto."
         : /Failed to fetch|import|network/i.test(m) ? "No se pudo conectar con el lector de menús. Revisa tu internet e intenta otra vez."
         : "No se pudo leer el menú. Intenta otra vez.";
     }
