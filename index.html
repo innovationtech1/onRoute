@@ -360,18 +360,21 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
 
 <header class="top">
   <div class="logo" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="5 5 54 54" aria-hidden="true"><defs><linearGradient id="og1" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BE15D"/><stop offset=".55" stop-color="#3DBE6B"/><stop offset="1" stop-color="#17702F"/></linearGradient><mask id="om1"><rect x="0" y="0" width="64" height="64" fill="#fff"/><rect x="30.4" y="0" width="3.2" height="18" fill="#000" transform="rotate(42 32 32)"/></mask></defs><path mask="url(#om1)" fill="url(#og1)" fill-rule="evenodd" d="M32 6A26 26 0 1 1 31.99 6ZM35.5 11A18 18 0 1 0 35.51 11Z"/></svg>nRoute</b><small>by InnovationTECH</small></div>
-  <span class="demo-tag" id="modeTag">Conectando…</span>
+  <div class="top-r">
+    <span class="demo-tag" id="modeTag">Conectando…</span>
+    <div class="tabs" role="tablist" aria-label="Cambiar de pantalla">
+      <button role="tab" id="tab-c" aria-selected="true" data-view="cliente">Cliente</button>
+      <button role="tab" id="tab-k" aria-selected="false" data-view="cocina">Cocina</button>
+    </div>
+  </div>
 </header>
-
-<div class="tabs" role="tablist">
-  <button role="tab" id="tab-c" aria-selected="true" data-view="cliente">App del cliente</button>
-  <button role="tab" id="tab-k" aria-selected="false" data-view="cocina">Tableta de cocina</button>
-</div>
+<div class="netbar" id="netbar" role="status" hidden>Sin conexión a internet. La app sigue abierta y se pondrá al día cuando vuelva la señal.</div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
 <main class="stage" id="stage" data-view="cliente">
   <section class="c-wrap" aria-label="App del cliente">
-    <p class="panel-label">Lo que ve el cliente en su celular</p>
-    <div class="phone">
+    <div class="client" id="client" data-view="menu">
+      <div class="main-col">
       <div class="hero">
         <div class="hero-row">
           <span style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#B9C6DA;font-weight:600">Pedidos para llevar</span>
@@ -398,14 +401,20 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
             <div class="loc-side"><span class="live" id="locLive"><i></i>GPS en vivo</span><a class="go" id="locGo" hidden target="_blank" rel="noopener">Cómo llegar</a></div>
           </div>
         </div>
+      <ol class="howto d-only" aria-label="Cómo pedir">
+        <li><b>Elige</b><span>Arma tu pedido con las tortas del menú.</span></li>
+        <li><b>Paga</b><span>Con tarjeta ahora o al recoger en el camión.</span></li>
+        <li><b>Recoge</b><span>Te avisamos cuando esté listo. Sin filas.</span></li>
+      </ol>
       </div>
-      <div class="screen" id="screen"></div>
+      <div class="menu-pane" id="menuPane"></div>
+      </div>
+      <aside class="side-pane" id="sidePane" aria-label="Tu pedido"></aside>
       <button class="cartbar" id="cartbar" hidden></button>
     </div>
   </section>
 
   <section class="k-wrap" aria-label="Tableta de cocina">
-    <p class="panel-label">Lo que ve el food truck en la tableta</p>
     <div class="kitchen">
       <div class="k-top">
         <div class="logo sm" aria-label="OnRoute by InnovationTECH"><b class="wm-main"><svg class="logo-o" viewBox="5 5 54 54" aria-hidden="true"><defs><linearGradient id="og2" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9BE15D"/><stop offset=".55" stop-color="#3DBE6B"/><stop offset="1" stop-color="#17702F"/></linearGradient><mask id="om2"><rect x="0" y="0" width="64" height="64" fill="#fff"/><rect x="30.4" y="0" width="3.2" height="18" fill="#000" transform="rotate(42 32 32)"/></mask></defs><path mask="url(#om2)" fill="url(#og2)" fill-rule="evenodd" d="M32 6A26 26 0 1 1 31.99 6ZM35.5 11A18 18 0 1 0 35.51 11Z"/></svg>nRoute</b><small>by InnovationTECH</small></div>
@@ -419,7 +428,7 @@ button:focus-visible,input:focus-visible{outline:3px solid var(--red);outline-of
       <div id="kApp">
         <div class="kpanel" id="pBoard">
           <label class="prow" for="pauseToggle" id="pauseWrap"><span class="prow-i"><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M10 9v6M14 9v6"/></svg></span><span class="prow-t">Pausar pedidos en línea</span><input type="checkbox" id="pauseToggle" class="tgl"></label>
-          <div class="kcard">
+          <div class="kcard" id="chartCard">
             <h4>Resumen de ventas de hoy</h4>
             <div class="chart" id="salesChart"></div>
           </div>
@@ -1144,6 +1153,143 @@ svg.leaflet-image-layer.leaflet-interactive path {
 	}
 
 </style>
+<style>
+/* ===== Layout v2: app a pantalla completa. La página nunca se desplaza; cada panel tiene su propio scroll. ===== */
+html,body{height:100%}
+body{padding:0!important;display:flex;flex-direction:column;overflow:hidden;background:var(--bg)}
+.top{flex:none;max-width:none!important;margin:0!important;flex-wrap:nowrap!important;gap:12px!important;
+  padding:10px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));
+  background:var(--surface);border-bottom:1px solid var(--line);color:var(--fg)}
+.top-r{display:flex;align-items:center;gap:10px;min-width:0}
+.top .tabs{display:flex!important;margin:0!important;max-width:none!important;padding:3px!important;gap:3px}
+.top .tabs button{padding:7px 14px;font-size:14px;white-space:nowrap;flex:none}
+.stage{flex:1;min-height:0;max-width:none!important;margin:0!important;display:block!important;padding:0}
+.stage>section{height:100%;min-height:0;max-width:none!important;margin:0!important}
+.stage[data-view="cliente"] .k-wrap,.stage[data-view="cocina"] .c-wrap{display:none!important}
+.panel-label{display:none!important}
+.netbar{flex:none;background:var(--warn-bg);color:var(--warn);font-weight:600;font-size:13px;text-align:center;padding:7px 16px}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:calc(84px + env(safe-area-inset-bottom,0px));z-index:50;max-width:min(92vw,460px);
+  background:#0B1A2E;color:#fff;border-radius:12px;padding:11px 16px;font-size:14px;font-weight:600;box-shadow:0 12px 30px -10px rgba(0,0,0,.5)}
+/* Cocina: el encabezado de arriba toma el tema oscuro */
+body[data-app="cocina"]{--bg:#0B1A2E}
+body[data-app="cocina"] .top{--surface:#0F1E33;--surface-2:#13243D;--fg:#EAF0F8;--muted:#8FA1BB;--line:#1C2F4D;--navy:#2C5D9A;color-scheme:dark}
+
+/* ---------- Cliente ---------- */
+.client{height:100%;min-height:0;position:relative;background:var(--surface);overflow-y:auto;overscroll-behavior:contain}
+.main-col{display:flex;flex-direction:column;min-width:0}
+.hero{flex:none;border-radius:0}
+.menu-pane{display:flex;flex-direction:column;gap:16px;min-width:0;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) 104px max(16px,env(safe-area-inset-left,0px))}
+.side-pane{min-width:0;display:flex;flex-direction:column;gap:16px;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) 32px max(16px,env(safe-area-inset-left,0px))}
+.side-pane>.sheet,.side-pane>.status{width:100%}
+.cats{position:sticky;top:0;z-index:3;background:var(--surface);margin:-6px 0 0;padding:8px 0;scrollbar-width:none;box-shadow:0 -28px 0 0 var(--surface),0 8px 10px -10px rgba(11,31,58,.25)}
+.cats::-webkit-scrollbar{display:none}
+.menu-pane>*,.side-pane>*,.hero>*,.kpanel>*,.kitchen>*,.main-col>*{flex-shrink:0}
+.item{border-bottom:1px solid var(--line)}
+.client:not([data-view="menu"]) .cartbar{display:none!important}
+.d-only{display:none!important}
+.howto{list-style:none;margin:auto 0 0;padding:18px 0 0;display:flex;flex-direction:column;gap:14px;counter-reset:h}
+.howto li{display:grid;grid-template-columns:32px 1fr;gap:2px 12px;counter-increment:h}
+.howto li::before{content:counter(h);grid-row:span 2;width:32px;height:32px;border-radius:50%;background:rgba(255,255,255,.14);color:#fff;font-weight:800;display:grid;place-items:center}
+.howto b{color:#fff;font-size:15px}
+.howto span{color:#C9D8C9;font-size:13px}
+@media (min-width:1180px){.howto.d-only{display:flex!important}}
+.empty-cart{border:1px dashed var(--line);border-radius:16px;padding:22px;text-align:center;color:var(--muted)}
+.empty-cart h2{margin:0 0 6px;color:var(--fg);font-family:var(--f-display);font-size:20px}
+.empty-cart p{margin:0;font-size:14px}
+#map{height:150px}
+/* Celular: menú o pedido, uno a la vez */
+.client[data-view="menu"] .side-pane{display:none}
+.client:not([data-view="menu"]) .main-col{display:none}
+.cartbar{position:fixed!important;left:max(12px,env(safe-area-inset-left,0px))!important;right:max(12px,env(safe-area-inset-right,0px))!important;
+  bottom:calc(12px + env(safe-area-inset-bottom,0px))!important;z-index:20;max-width:560px;margin:0 auto}
+/* Tableta / laptop chica: menú + pedido lado a lado */
+@media (min-width:760px){
+  .client{display:grid;grid-template-columns:minmax(0,1fr) minmax(330px,390px);overflow:hidden}
+  .client .main-col{display:flex!important;overflow-y:auto;min-height:0;overscroll-behavior:contain}
+  .client .side-pane{display:flex!important;overflow-y:auto;min-height:0;border-left:1px solid var(--line);background:var(--surface-2);padding:20px}
+  .side-pane .ticket,.side-pane .choices button,.side-pane .field input{background:var(--surface)}
+  .cartbar,.m-only{display:none!important}
+  .menu-pane{padding-bottom:28px}
+  .menu{display:grid!important;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px!important}
+  .item{border:1px solid var(--line)!important;border-radius:16px;padding:14px!important;background:var(--surface);align-content:start}
+  .last{max-width:560px}
+}
+/* Escritorio: datos del camión | menú | pedido */
+@media (min-width:1180px){
+  .client{grid-template-columns:minmax(300px,350px) minmax(0,1fr) minmax(340px,400px)}
+  .client .main-col{display:contents!important}
+  .hero{overflow-y:auto;min-height:0;padding:22px!important;display:flex;flex-direction:column}
+  .hero .loc{flex:none}
+  .menu-pane{overflow-y:auto;min-height:0;overscroll-behavior:contain;padding:20px 24px 28px}
+  #map{height:clamp(200px,34vh,360px)}
+  .truck-name{font-size:30px!important}
+}
+
+/* ---------- Cocina ---------- */
+.k-wrap{height:100%}
+.kitchen{height:100%;min-height:0;border-radius:0!important;border:0!important;padding:0!important;display:flex!important;flex-direction:column;gap:0!important;box-shadow:none!important}
+.k-top{display:none!important}
+.kitchen .k-head{flex:none;display:flex!important;align-items:baseline;flex-wrap:wrap;gap:4px 14px;
+  padding:12px max(16px,env(safe-area-inset-right,0px)) 10px max(16px,env(safe-area-inset-left,0px));border-bottom:1px solid var(--line)}
+.kitchen .k-head h2{font-size:20px!important;margin:0}
+.k-live{margin:0!important}
+#kAuth{flex:1;min-height:0;overflow-y:auto;padding:28px 16px;display:flex;justify-content:center;align-items:flex-start}
+#kAuth[hidden]{display:none!important}
+#kAuth>*{width:100%;max-width:440px}
+#kApp{flex:1;min-height:0;display:grid!important;grid-template-areas:"main" "nav";grid-template-rows:minmax(0,1fr) auto;gap:0!important}
+#kApp[hidden]{display:none!important}
+#kApp>[hidden],#pBoard[hidden]{display:none!important}
+.kpanel{grid-area:main;min-height:0;min-width:0;overflow-y:auto;overscroll-behavior:contain;
+  padding:16px max(16px,env(safe-area-inset-right,0px)) 20px max(16px,env(safe-area-inset-left,0px))}
+.knav{grid-area:nav;position:static!important;margin:0!important;border-radius:0!important}
+.board .col{min-height:120px}
+@media (min-width:900px){
+  #kApp{grid-template-areas:"nav main";grid-template-columns:210px minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+  .knav{display:flex!important;flex-direction:column;gap:4px;border-top:0!important;border-right:1px solid var(--line);padding:14px 10px!important}
+  .knav button{flex-direction:row!important;justify-content:flex-start;gap:12px!important;padding:11px 12px!important;border-radius:10px;font-size:14px!important}
+  .knav button:hover{background:var(--surface-2)}
+  .knav button[aria-selected="true"]{background:var(--surface-2)}
+  .knav button[aria-selected="true"]::before{top:9px!important;bottom:9px;left:0!important;right:auto!important;width:3px;height:auto!important;border-radius:3px}
+  .kpanel{padding:20px 24px}
+  .menued,.hist,#pConfig{max-width:980px}
+}
+/* Escritorio grande: el tablero de pedidos llena la pantalla y cada columna se desplaza sola */
+@media (min-width:1100px) and (min-height:600px){
+  #pBoard{display:grid!important;overflow:hidden;gap:14px!important;
+    grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1.3fr);
+    grid-template-areas:"tiles tiles chart" "pause gps alerts" "board board board";
+    grid-template-rows:auto auto minmax(0,1fr)}
+  #pBoard>.tiles{grid-area:tiles}
+  #chartCard{grid-area:chart;padding:12px 14px}
+  #chartCard h4{margin-bottom:6px}
+  #pauseWrap{grid-area:pause}
+  #gpsBar{grid-area:gps}
+  #stockAlerts{grid-area:alerts;max-height:92px;overflow-y:auto;padding:10px 14px}
+  #stockAlerts h4{margin-bottom:6px}
+  #pBoard>.board{grid-area:board;min-height:0;height:100%}
+  .board .col{overflow-y:auto;min-height:0}
+  .chart,.chart-empty{height:96px!important;padding-top:18px}
+  .tile{min-height:0!important}
+}
+@media (max-width:560px){
+  .me-opt{grid-template-columns:22px minmax(0,1fr) 92px 34px!important;grid-template-areas:"code lab lab x" "code det price price"}
+  .me-opt .code{grid-area:code;align-self:start;padding-top:8px}
+  .me-opt input[data-of="1"]{grid-area:lab}
+  .me-opt .det{grid-area:det}
+  .me-opt .price{grid-area:price}
+  .me-opt .me-x{grid-area:x}
+}
+@media (max-width:899px){.knav{padding-bottom:calc(6px + env(safe-area-inset-bottom,0px))!important}}
+@media (max-width:560px){
+  .demo-tag{display:none}
+  .top .wm-main{font-size:24px}
+  .top .logo small{font-size:10px}
+  .top .tabs button{padding:7px 11px}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+</style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
@@ -1201,11 +1347,11 @@ if(state.myOrder)state.view="status";
   }
 }catch(e){}})();
 
-function renderClient(){
-  const sc=$("#screen"), bar=$("#cartbar");
+function renderClientInto(sc,VIEW){
+  const bar=$("#cartbar");
   $("#openPill").textContent=state.paused?"Pausado":"Abierto";
   $("#openPill").classList.toggle("closed",state.paused);
-  if(state.view==="menu"){
+  if(VIEW==="menu"){
     if(!menuCats().includes(state.cat))state.cat=menuCats()[0]||"";
     const items=MENU.filter(m=>m.cat===state.cat);
     sc.innerHTML=`
@@ -1228,11 +1374,11 @@ function renderClient(){
     const n=cartCount();
     bar.hidden=!n;
     bar.innerHTML=`<span><span class="count mono">${n}</span>Ver pedido</span><span class="mono">${money(subtotal())}</span>`;
-  } else if(state.view==="cart"){
+  } else if(VIEW==="cart"){
     bar.hidden=true;
     const tot=subtotal();
     sc.innerHTML=`
-      <button class="back" data-go="menu">← Seguir pidiendo</button>
+      <button class="back m-only" data-go="menu">← Seguir pidiendo</button>
       <div class="sheet" style="display:flex;flex-direction:column;gap:16px">
         <h2>Tu pedido</h2>
         <div class="lines">${Object.entries(state.cart).map(([k,q])=>{const p=parse(k);return `
@@ -1283,6 +1429,14 @@ function renderClient(){
 let authKey="";
 const UA=navigator.userAgent||"";
 const inApp=/FBAN|FBAV|FB_IAB|Messenger/i.test(UA)?"Facebook/Messenger":/Instagram/i.test(UA)?"Instagram":/Line\//i.test(UA)?"Line":/; wv\)/.test(UA)?"una app":"";
+function renderClient(){
+  const c=$("#client");c.dataset.view=state.view;
+  const side=$("#sidePane");
+  if(state.view==="status")renderClientInto(side,"status");
+  else if(cartCount())renderClientInto(side,"cart");
+  else side.innerHTML=`<div class="empty-cart"><h2>Tu pedido</h2><p>Todavía no agregas nada. Elige una torta del menú y aquí verás tu pedido y el total.</p></div>`;
+  renderClientInto($("#menuPane"),"menu");
+}
 function renderAuth(){
   const box=$("#kAuth");
   const u=state.user;
@@ -1492,7 +1646,17 @@ function renderSession(){
   const u=state.user;
   $("#kSession").innerHTML=state.fb&&u?`<span>Sesión: ${esc(u.email||"")}</span><button data-auth="logout">Cerrar sesión</button>`:`<span class="hint">Modo sin conexión: no hay sesión.</span>`;
 }
-function render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){showPanels();renderHist()}}
+function render(){
+  const ae=document.activeElement,aid=ae&&ae.id;let ss=null,se=null;try{ss=ae.selectionStart;se=ae.selectionEnd}catch(e){}
+  try{_render()}catch(e){console.error("OnRoute: error al dibujar",e);toast("Algo falló al actualizar la pantalla. Recarga si ves datos raros.")}
+  if(aid&&document.activeElement!==ae){const el=document.getElementById(aid);if(el&&el!==ae){el.focus({preventScroll:true});try{if(ss!=null)el.setSelectionRange(ss,se)}catch(e){}}}
+}
+let toastT=null;
+function toast(msg){const t=$("#toast");if(!t)return;t.textContent=msg;t.hidden=false;clearTimeout(toastT);toastT=setTimeout(()=>{t.hidden=true},4500)}
+function netState(){const off=navigator.onLine===false;const nb=$("#netbar");if(nb)nb.hidden=!off}
+window.addEventListener("online",netState);window.addEventListener("offline",netState);netState();
+window.addEventListener("unhandledrejection",e=>{console.error("OnRoute:",e.reason)});
+function _render(){renderClient();renderKitchen();if(!(state.fb&&!state.isOwner)){showPanels();renderHist()}}
 
 function setMode(){
   const t=$("#modeTag");
@@ -1538,7 +1702,7 @@ async function placeOrder(){
 async function advance(id){
   const o=state.orders.find(x=>x.id===id);if(!o)return;
   const next={new:"prep",prep:"ready",ready:"done"}[o.status];
-  if(state.live){try{await db.collection("orders").doc(id).update({status:next})}catch(e){}}
+  if(state.live){try{await db.collection("orders").doc(id).update({status:next})}catch(e){console.error("OnRoute: error al mover pedido",e);toast("No se pudo actualizar el pedido. Revisa la conexión e intenta otra vez.")}}
   else{o.status=next;render()}
 }
 
@@ -1549,7 +1713,7 @@ document.addEventListener("click",e=>{
   else if(t.dataset.add){const m=MENU.find(x=>x.id===t.dataset.add);const k=`${m.id}|${state.pick[m.id]||m.opts[0][0]}|${state.solo[m.id]?1:0}`;state.cart[k]=(state.cart[k]||0)+1}
   else if(t.dataset.inc){state.cart[t.dataset.inc]++}
   else if(t.dataset.dec){const k=t.dataset.dec;state.cart[k]--;if(!state.cart[k])delete state.cart[k];if(!cartCount())state.view="menu"}
-  else if(t.id==="cartbar"){state.view="cart"}
+  else if(t.id==="cartbar"){state.view="cart";const c=$("#client");if(c)c.scrollTop=0}
   else if(t.dataset.go==="menu"){state.view="menu"}
   else if(t.dataset.go==="new"){state.view="menu";state.cart={};state.myOrder=null;try{sessionStorage.removeItem("onroute-my")}catch(e){}}
   else if(t.dataset.pick){state.pickup=t.dataset.pick}
@@ -1562,17 +1726,19 @@ document.addEventListener("click",e=>{
   render();
 });
 function setView(v){
-  $("#stage").dataset.view=v;
+  $("#stage").dataset.view=v;document.body.dataset.app=v;
+  setTimeout(()=>{try{if(map)map.invalidateSize()}catch(e){}},60);
   document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-selected",b.dataset.view===v));
 }
 document.addEventListener("change",e=>{if(e.target.dataset.solo){state.solo[e.target.dataset.solo]=e.target.checked;render()}});
 document.addEventListener("input",e=>{if(e.target.id==="nameInput"){state.name=e.target.value}});
 $("#pauseToggle").addEventListener("change",async e=>{
   state.paused=e.target.checked;render();
-  if(state.live&&(!state.fb||state.isOwner)){try{await db.doc("settings/truck").set({paused:state.paused})}catch(err){}}
+  if(state.live&&(!state.fb||state.isOwner)){try{await db.doc("settings/truck").set({paused:state.paused})}catch(err){state.paused=!state.paused;render();toast("No se pudo cambiar la pausa. Revisa la conexión.")}}
 });
 function fromHash(){const h=location.hash.slice(1);if(h==="cocina"||h==="cliente")setView(h)}
 window.addEventListener("hashchange",fromHash);fromHash();
+if(!document.body.dataset.app)setView("cliente");
 render();
 
 // ---- Firebase (GitHub Pages) ----
@@ -1634,6 +1800,7 @@ function renderLoc(){
       map.attributionControl.setPrefix(false);
       window.L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png",{maxZoom:19,attribution:"© OpenStreetMap"}).addTo(map);
       setTimeout(()=>map.invalidateSize(),200);
+      try{new ResizeObserver(()=>map.invalidateSize()).observe($("#map"))}catch(e){}
       marker=window.L.marker(ll,{icon:window.L.divIcon({className:"",html:'<div class="truck-pin"><b></b><i></i></div>',iconSize:[34,34],iconAnchor:[17,32]}),title:"Tortas Tortuga"}).addTo(map);
     } else {marker.setLatLng(ll);map.panTo(ll)}
   }
