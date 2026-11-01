@@ -1383,7 +1383,8 @@ Reglas:
     if (sp) {
       const st = R.stripeReady ? "ok" : R.stripeAccount ? "half" : "none";
       sp.innerHTML = `<div class="stripe-st ${st}">${st === "ok" ? "✓ Conectado · ya aceptas tarjeta" : st === "half" ? "Falta terminar el registro en Stripe" : "Sin conectar"}</div>
-        ${st !== "ok" ? `<button class="btn" data-act="stripego" ${S.stripeBusy ? "disabled" : ""}>${S.stripeBusy ? "Abriendo Stripe…" : st === "half" ? "Terminar registro en Stripe" : "Conectar con Stripe"}</button>` : `<button class="btn sec sm" data-act="stripechk" ${S.stripeBusy ? "disabled" : ""}>Revisar estado</button>`}
+        ${st !== "ok" ? `<button class="btn" data-act="stripego" ${S.stripeBusy ? "disabled" : ""}>${S.stripeBusy ? "Abriendo Stripe…" : st === "half" ? "Terminar registro en Stripe" : "Conectar con Stripe"}</button>` : ""}
+        ${st !== "none" ? `<button class="btn sec sm" data-act="stripechk" ${S.stripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}
         ${S.stripeMsg ? `<p class="hint">${esc(S.stripeMsg)}</p>` : ""}`;
     }
     const m = $("#pfMsg"); if (m) { m.textContent = S.pfMsg; m.className = S.pfMsg && /No se pudo|Falta|no dio permiso|no está activado|No pudimos|no cargó|no es una imagen|demasiado grande|Se cortó|Se llenó/.test(S.pfMsg) ? "err" : S.pfMsg ? "ok-msg" : "hint"; }
