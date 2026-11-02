@@ -54,11 +54,11 @@ service cloud.firestore {
       allow list: if isAdmin();
       allow create: if signedIn() && request.auth.uid == uid
         && request.resource.data.keys().hasOnly(['role','name','email','phone','favorites','createdAt'])
-        && request.resource.data.role in ['customer','business']
+        && request.resource.data.role in ['customer','business','driver']
         && request.resource.data.name is string && request.resource.data.name.size() <= 60;
       allow update: if signedIn() && request.auth.uid == uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['role','name','phone','favorites'])
-        && request.resource.data.role in ['customer','business']
+        && request.resource.data.role in ['customer','business','driver']
         && request.resource.data.name is string && request.resource.data.name.size() <= 60
         && request.resource.data.favorites is list && request.resource.data.favorites.size() <= 50;
       allow delete: if isAdmin();
@@ -71,6 +71,48 @@ service cloud.firestore {
           && exists(/databases/$(database)/documents/restaurants/$(request.resource.data.rid)/orders/$(oid));
         allow delete: if signedIn() && request.auth.uid == uid;
         allow update: if false;
+      }
+    }
+
+    // ---------- Repartidores ----------
+    // drivers/{uid}: el repartidor llena su registro y queda "pending" hasta que el admin lo aprueba.
+    // El estado y la cuenta de Stripe solo los cambian el admin o el servidor de pagos.
+    function driverKeys() {
+      return ['name','phone','email','vehicle','licenseExpires','attest','online','loc','updatedAt'];
+    }
+    function validDriver(d) {
+      return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
+        && d.phone is string && d.phone.size() >= 7 && d.phone.size() <= 30
+        && d.vehicle is map && d.vehicle.keys().hasOnly(['make','model','year','color','plate'])
+        && d.vehicle.plate is string && d.vehicle.plate.size() >= 2 && d.vehicle.plate.size() <= 12
+        && d.licenseExpires is string && d.licenseExpires.size() == 10
+        && d.attest is map && d.attest.license == true && d.attest.registration == true
+        && d.attest.insurance == true && d.attest.terms == true
+        && (!('online' in d) || d.online is bool);
+    }
+    match /drivers/{uid} {
+      allow get: if signedIn() && (request.auth.uid == uid || isAdmin());
+      allow list: if isAdmin();
+      allow create: if signedIn() && request.auth.uid == uid
+        && request.resource.data.keys().hasOnly(driverKeys().concat(['status','createdAt']))
+        && request.resource.data.status == 'pending'
+        && validDriver(request.resource.data);
+      allow update: if (signedIn() && request.auth.uid == uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(driverKeys())
+          && validDriver(request.resource.data))
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
+          && request.resource.data.status in ['pending','active','suspended']);
+      allow delete: if isAdmin();
+
+      // Foto de la licencia: privada, solo la ven el repartidor y el administrador.
+      match /docs/{doc} {
+        allow read: if signedIn() && (request.auth.uid == uid || isAdmin());
+        allow create, update: if signedIn() && request.auth.uid == uid
+          && doc == 'license'
+          && request.resource.data.keys().hasOnly(['data','createdAt'])
+          && request.resource.data.data is string
+          && request.resource.data.data.size() < 400000;
+        allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
       }
     }
 

@@ -23,6 +23,8 @@ Las promociones por ahora solo aplican a pedidos Al recoger.
 | `stripeWebhook` | Recibe los avisos de Stripe (pagos y estado de cuentas) |
 | `connectStart` | Crea la cuenta Stripe del negocio y le da el enlace de registro |
 | `connectStatus` | Revisa si la cuenta del negocio ya puede cobrar |
+| `driverStart` | Crea la cuenta Express del repartidor aprobado (solo recibe transferencias) y le da el enlace de registro |
+| `driverStatus` | Revisa si el repartidor ya puede recibir pagos |
 
 ## Variables de entorno en Netlify (nunca en GitHub ni en el chat)
 Netlify → onroute-pagos → **Site configuration → Environment variables**:

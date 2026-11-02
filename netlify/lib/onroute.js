@@ -115,4 +115,14 @@ async function acctStatus(id) {
   };
 }
 
-module.exports = { acctStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
+// Cuenta de Stripe del repartidor: lista cuando puede recibir transferencias.
+async function recipientStatus(id) {
+  const a = await stripe().v2.core.accounts.retrieve(id, { include: ["configuration.recipient", "requirements"] });
+  const c = a.configuration && a.configuration.recipient && a.configuration.recipient.capabilities;
+  const tr = c && c.stripe_balance && c.stripe_balance.stripe_transfers;
+  const entries = a.requirements && Array.isArray(a.requirements.entries) ? a.requirements.entries : [];
+  const missing = entries.slice(0, 12).map(e => ({ who: e.awaiting_action_from === "stripe" ? "stripe" : "user", text: String(e.description || "").slice(0, 160), codes: (Array.isArray(e.errors) ? e.errors : []).map(x => String(x.code || "")).filter(Boolean).slice(0, 4) }));
+  return { ready: !!(tr && tr.status === "active"), cap: tr ? String(tr.status || "") : "", reasons: tr && Array.isArray(tr.status_details) ? tr.status_details.map(d => String(d.code || "")).filter(Boolean) : [], pending: missing.length, missing };
+}
+
+module.exports = { acctStatus, recipientStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };

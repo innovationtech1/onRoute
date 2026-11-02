@@ -50,6 +50,7 @@
     power: ic('<path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>'),
     search: ic('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
     target: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>'),
+    car: ic('<path d="M5 17h14M3 17v-4l2-5a2 2 0 0 1 2-1h10a2 2 0 0 1 2 1l2 5v4"/><path d="M3 13h18"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/>'),
     food: ic('<path d="M7 3v7a2 2 0 0 0 4 0V3M9 12v9"/><path d="M17 21V3c-2 0-3.5 2.5-3.5 6s1.5 4.5 3.5 4.5"/>'),
     store: ic('<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/><path d="M10 21v-5h4v5"/>'),
     tag: ic('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
@@ -268,11 +269,11 @@
   // Cada quien elige al entrar por primera vez y la app lo recuerda: los clientes ven el directorio,
   // los negocios entran directo a su panel. Se puede cambiar desde la cuenta o el perfil.
   const MODE_K = "onroute-mode";
-  (() => { try { const q = new URLSearchParams(location.search), m = q.get("modo"); if (m === "cliente" || m === "negocio") { ls.set(MODE_K, m); q.delete("modo"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + (m === "negocio" && !location.hash ? "#panel" : location.hash)); } } catch (e) {} })();
+  (() => { try { const q = new URLSearchParams(location.search), m = q.get("modo"); if (m === "cliente" || m === "negocio" || m === "repartidor") { ls.set(MODE_K, m); q.delete("modo"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + (!location.hash ? (m === "negocio" ? "#panel" : m === "repartidor" ? "#repartir" : "") : location.hash)); } } catch (e) {} })();
   function setMode(m, nav = true) {
     S.mode = m; ls.set(MODE_K, m); S.authMsg = "";
-    S.authRole = m === "negocio" ? "business" : "customer";
-    if (nav) go(m === "negocio" ? "panel" : "home"); else renderNav();
+    S.authRole = m === "negocio" ? "business" : m === "repartidor" ? "driver" : "customer";
+    if (nav) go(m === "negocio" ? "panel" : m === "repartidor" ? "driver" : "home"); else renderNav();
   }
   function parseRoute() {
     const h = location.hash.slice(1);
@@ -282,12 +283,14 @@
     const r = new URLSearchParams(location.search).get("r");
     if (r && /^[a-z0-9-]{3,40}$/i.test(r)) return { name: "rest", rid: r.toLowerCase() };
     if (h === "inicio") return { name: "welcome" };
+    if (h === "repartir") return { name: "driver" };
     if (!S.mode) return { name: "welcome" };
     if (S.mode === "negocio") return { name: "panel" };
+    if (S.mode === "repartidor") return { name: "driver" };
     return { name: "home" };
   }
   function go(name, rid) {
-    const url = name === "welcome" ? `${BASE}#inicio` : name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
+    const url = name === "welcome" ? `${BASE}#inicio` : name === "driver" ? `${BASE}#repartir` : name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
     if (location.href !== url) history.pushState(null, "", url);
     route();
   }
@@ -296,8 +299,12 @@
     S.route = r;
     document.body.dataset.app = r.name;
     if (r.name === "panel" && !location.hash) history.replaceState(null, "", BASE + "#panel");
+    if (r.name === "driver" && !location.hash) history.replaceState(null, "", BASE + "#repartir");
     // Quien abre el panel (enlace, QR de negocios, marcador viejo) queda en modo negocio.
     if (r.name === "panel" && S.mode !== "negocio") { S.mode = "negocio"; ls.set(MODE_K, "negocio"); }
+    if (r.name === "driver" && S.mode !== "repartidor") { S.mode = "repartidor"; ls.set(MODE_K, "repartidor"); }
+    $("#vDriver").hidden = r.name !== "driver";
+    if (r.name === "driver") paint(renderDriver);
     $("#vWelcome").hidden = r.name !== "welcome";
     if (r.name === "welcome") paint(renderWelcome);
     document.body.dataset.mode = S.mode || "";
@@ -679,11 +686,14 @@
     authUnsub = auth.onAuthStateChanged(u => {
       S.user = u; S.authReady = true; S.isAdmin = false; S.my = null; S.myReady = false; S.profile = null; S.profileReady = false;
       S.hist = []; S.histReady = false; S.users = []; S.usersReady = false; S.all = []; S.allReady = false; S.stats = null;
+      S.drv = null; S.drvReady = false; S.drvForm = null; S.drvLic = ""; S.drivers = []; S.driversReady = false;
+      [drvUnsub, driversUnsub].forEach(f => { try { f && f(); } catch (e) {} }); drvUnsub = driversUnsub = null;
       [myUnsub, ordUnsub, myMenuUnsub, allUnsub, profUnsub, histUnsub, usersUnsub].forEach(f => { try { f && f(); } catch (e) {} });
       myUnsub = ordUnsub = myMenuUnsub = allUnsub = profUnsub = histUnsub = usersUnsub = null;
       stopGps(true);
       if (u) {
-        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) { watchAll(); watchUsers(); } afterAuth(); }).catch(() => afterAuth());
+        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) { watchAll(); watchUsers(); watchDrivers(); } afterAuth(); }).catch(() => afterAuth());
+        drvUnsub = db.doc(`drivers/${u.uid}`).onSnapshot(s => { S.drv = s.exists ? { id: s.id, ...s.data() } : null; S.drvReady = true; afterAuth(); }, () => { S.drvReady = true; afterAuth(); });
         profUnsub = db.doc(`users/${u.uid}`).onSnapshot(s => { S.profile = s.exists ? s.data() : null; S.profileReady = true; afterAuth(); }, () => { S.profileReady = true; afterAuth(); });
         myUnsub = db.collection("restaurants").where("ownerUid", "==", u.uid).limit(1).onSnapshot(snap => {
           const d = snap.docs[0], prev = S.my && S.my.id;
@@ -700,7 +710,12 @@
       afterAuth();
     });
   }
-  function roleOf() { if (!S.user) return null; if (S.my) return "business"; return (S.profile && S.profile.role) || null; }
+  let drvUnsub = null, driversUnsub = null;
+  function watchDrivers() {
+    if (driversUnsub) return;
+    driversUnsub = db.collection("drivers").onSnapshot(snap => { S.drivers = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.driversReady = true; if (S.route.name === "admin") paint(renderAdmin); }, e => { console.warn("OnRoute: repartidores", e); S.driversReady = true; });
+  }
+  function roleOf() { if (!S.user) return null; if (S.my) return "business"; if (S.drv) return "driver"; return (S.profile && S.profile.role) || null; }
   let creatingProfile = false;
   function afterAuth() {
     const u = S.user;
@@ -712,15 +727,16 @@
         .catch(e => console.error("OnRoute: perfil", e)).finally(() => { creatingProfile = false; });
     }
     // Quien ya tenía cuenta y nunca eligió modo: se elige solo según su cuenta.
-    if (u && !S.mode && S.profileReady && S.myReady && roleOf()) {
-      const m = roleOf() === "business" ? "negocio" : "cliente"; S.mode = m; ls.set(MODE_K, m);
-      if (S.route.name === "welcome") { go(m === "negocio" ? "panel" : "home"); return; }
+    if (u && !S.mode && S.profileReady && S.myReady && S.drvReady && roleOf()) {
+      const r0 = roleOf(), m = r0 === "business" ? "negocio" : r0 === "driver" ? "repartidor" : "cliente"; S.mode = m; ls.set(MODE_K, m);
+      if (S.route.name === "welcome") { go(m === "negocio" ? "panel" : m === "repartidor" ? "driver" : "home"); return; }
     }
     // Después de entrar: cada quien a su vista.
     if (u && S.loginIntent && S.profileReady && S.myReady && roleOf()) {
       const role = roleOf(), intent = S.loginIntent; S.loginIntent = null;
       if (S.returnTo) { const t = S.returnTo; S.returnTo = null; go(t.name, t.rid); }
       else if (role === "business" && intent !== "panel") go("panel");
+      else if (role === "driver" && intent !== "driver") go("driver");
       else if (role === "customer" && intent === "panel" && S.authRole !== "business") go("account");
     }
     renderNav();
@@ -729,6 +745,124 @@
     if (n === "account") paint(renderAccount);
     if (n === "admin") paint(renderAdmin);
     if (n === "rest") paint(renderRest);
+    if (n === "driver") paint(renderDriver);
+  }
+  // ---------------------------------------------------------------- repartidores
+  const DRV_ATTEST = [
+    ["license", "Tengo 18 años o más y mi licencia de manejo está vigente."],
+    ["registration", "Mi auto tiene registro y placas vigentes."],
+    ["insurance", "Tengo seguro de auto vigente y me aseguro de que cubra hacer entregas."],
+    ["terms", "Acepto los términos para repartidores: trabajo como contratista independiente, respeto las leyes de tránsito y cuido la higiene y seguridad de los pedidos."],
+  ];
+  const todayISO = () => { const d = new Date(); return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10); };
+  const licDays = iso => iso ? Math.floor((new Date(iso + "T23:59:59") - Date.now()) / 86400000) : -1;
+  function drvEnsure() {
+    if (S.drvForm) return S.drvForm;
+    const D = S.drv || {}, V = D.vehicle || {}, P = S.profile || {};
+    S.drvForm = { name: D.name || P.name || (S.user && S.user.displayName) || "", phone: D.phone || P.phone || "", make: V.make || "", model: V.model || "", year: V.year || "", color: V.color || "", plate: V.plate || "",
+      licenseExpires: D.licenseExpires || "", attest: { license: false, registration: false, insurance: false, terms: false, ...(D.attest || {}) } };
+    return S.drvForm;
+  }
+  function drvFormHTML(edit) {
+    const F = drvEnsure(), f = (k, l, ph, extra = "") => `<div class="field"><label for="df-${k}">${l}</label><input id="df-${k}" data-df="${k}" value="${esc(F[k])}" placeholder="${esc(ph)}" ${extra}></div>`;
+    return `<div class="kcard dform">
+      <h4>${edit ? "Actualiza tus datos" : "Tu registro de repartidor"}</h4>
+      <div class="dgrid">${f("name", "Nombre completo (como en tu licencia)", "Ej. Juan Pérez López", 'maxlength="60" autocomplete="name"')}${f("phone", "Teléfono", "Ej. 210 555 0123", 'maxlength="30" inputmode="tel" autocomplete="tel"')}</div>
+      <h5>Tu auto</h5>
+      <div class="dgrid three">${f("make", "Marca", "Ej. Toyota", 'maxlength="20"')}${f("model", "Modelo", "Ej. Corolla", 'maxlength="20"')}${f("year", "Año", "Ej. 2018", 'maxlength="4" inputmode="numeric"')}${f("color", "Color", "Ej. Gris", 'maxlength="15"')}${f("plate", "Placas", "Ej. ABC1234", 'maxlength="12" autocapitalize="characters"')}</div>
+      <h5>Tu licencia de manejo</h5>
+      <div class="dlic"><div class="dlic-ph" id="dLicPh">${S.drvLic ? `<img src="${esc(S.drvLic)}" alt="Licencia">` : S.drv && S.drv.licenseExpires ? `<span>✓ Ya enviaste tu licencia</span>` : `<span>Sin foto</span>`}</div>
+        <div class="dlic-in"><label class="btn sec sm" for="drvLicIn">${I.prof} ${S.drvLic || (S.drv && S.drv.licenseExpires) ? "Cambiar foto" : "Tomar o subir foto"}<input type="file" id="drvLicIn" accept="image/*" capture="environment"></label>
+          <span class="hint">Foto del frente, completa, que se lea bien y sin reflejos. Solo la ve el administrador de OnRoute.</span>
+          <div class="field"><label for="df-licenseExpires">Fecha de vencimiento</label><input id="df-licenseExpires" data-df="licenseExpires" type="date" min="${todayISO()}" value="${esc(F.licenseExpires)}"></div></div></div>
+      <h5>Declaraciones</h5>
+      <div class="dattest">${DRV_ATTEST.map(([k, t]) => `<label><input type="checkbox" data-da="${k}" ${F.attest[k] ? "checked" : ""}><span>${t}</span></label>`).join("")}</div>
+      <p class="hint">En Texas el seguro del auto es obligatorio. Muchas pólizas personales no cubren hacer entregas: pregúntale a tu aseguradora antes de empezar.</p>
+      ${S.drvMsg ? `<p class="${/^Listo|enviado/i.test(S.drvMsg) ? "ok-msg" : "err"}" role="alert">${esc(S.drvMsg)}</p>` : ""}
+      <button class="btn green" data-act="drvsave" ${S.drvBusy ? "disabled" : ""}>${S.drvBusy ? "Enviando…" : edit ? "Guardar cambios" : "Enviar mi registro"}</button>
+    </div>`;
+  }
+  async function drvSave() {
+    const F = drvEnsure(), D = S.drv, u = S.user;
+    const fail = m => { S.drvMsg = m; paint(renderDriver); };
+    if (F.name.trim().length < 2) return fail("Escribe tu nombre completo.");
+    if (F.phone.replace(/\D/g, "").length < 7) return fail("Escribe un teléfono válido.");
+    if (!F.make.trim() || !F.model.trim() || !F.color.trim()) return fail("Completa la marca, el modelo y el color de tu auto.");
+    if (F.plate.trim().length < 2) return fail("Escribe las placas de tu auto.");
+    if (F.year && !/^(19[89]\d|20\d\d)$/.test(F.year.trim())) return fail("Revisa el año del auto.");
+    if (!S.drvLic && !(D && D.licenseExpires)) return fail("Falta la foto de tu licencia.");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(F.licenseExpires)) return fail("Pon la fecha de vencimiento de tu licencia.");
+    if (licDays(F.licenseExpires) < 0) return fail("Tu licencia está vencida. Necesitas una licencia vigente para repartir.");
+    if (!DRV_ATTEST.every(([k]) => F.attest[k])) return fail("Marca todas las declaraciones para continuar.");
+    S.drvBusy = true; S.drvMsg = ""; paint(renderDriver);
+    try {
+      if (S.drvLic) await db.doc(`drivers/${u.uid}/docs/license`).set({ data: S.drvLic, createdAt: Date.now() });
+      const data = { name: F.name.trim().slice(0, 60), phone: F.phone.trim().slice(0, 30), email: String(u.email || "").slice(0, 120),
+        vehicle: { make: F.make.trim().slice(0, 20), model: F.model.trim().slice(0, 20), year: F.year.trim().slice(0, 4), color: F.color.trim().slice(0, 15), plate: F.plate.trim().toUpperCase().slice(0, 12) },
+        licenseExpires: F.licenseExpires, attest: { license: true, registration: true, insurance: true, terms: true }, updatedAt: Date.now() };
+      if (D) await db.doc(`drivers/${u.uid}`).update(data);
+      else await db.doc(`drivers/${u.uid}`).set({ ...data, online: false, status: "pending", createdAt: Date.now() });
+      if (S.profile && S.profile.role === "customer") db.doc(`users/${u.uid}`).update({ role: "driver" }).catch(() => {});
+      S.drvLic = ""; S.drvForm = null; S.drvEdit = false; S.drvMsg = D ? "Listo, tus datos se guardaron." : "";
+      if (!D) toast("¡Registro enviado! Te avisamos cuando te aprobemos.");
+    } catch (e) { console.error("OnRoute: repartidor", e); S.drvMsg = e && e.code === "permission-denied" ? "Firebase no dio permiso. Revisa que publicaste las reglas nuevas de Firestore." : "No se pudo enviar. Revisa tu conexión e intenta otra vez."; }
+    S.drvBusy = false; paint(renderDriver);
+  }
+  async function drvStripe(kind) {
+    S.drvStripeBusy = true; S.drvStripeErr = null; paint(renderDriver);
+    try {
+      if (kind === "start") { const j = await payApi("driverStart", {}); location.href = j.url; return; }
+      S.drvStripeInfo = await payApi("driverStatus", {});
+      if (S.drvStripeInfo.ready) toast("¡Listo! Ya puedes recibir tus pagos.");
+    } catch (e) { console.error("OnRoute: Stripe repartidor", e); S.drvStripeErr = stripeErrOf(e); }
+    S.drvStripeBusy = false; paint(renderDriver);
+  }
+  function renderDriver() {
+    const v = $("#vDriver");
+    const head = `<div class="p-head"><h2>Repartidores</h2><span class="grow"></span>${S.drv && S.drv.status === "active" ? `<span class="chip cdot open">Aprobado</span>` : ""}</div>`;
+    const wrap = inner => `<div class="panel">${head}<div class="p-auth scroll"><div class="drv">${inner}</div></div></div>`;
+    if (!S.authReady || (S.user && (!S.drvReady || !S.profileReady))) { v.innerHTML = wrap(`<div class="empty-box">Cargando…</div>`); return; }
+    if (!S.user) { S.authRole = "driver"; v.innerHTML = wrap(authHTML()); return; }
+    if (stripeBack && !S.drvStripeChecked && S.drv) { S.drvStripeChecked = true; if (stripeBack === "back") setTimeout(() => drvStripe("status"), 0); }
+    const D = S.drv;
+    const keep = () => { const a = document.activeElement; return a && v.contains(a) && /INPUT|TEXTAREA/.test(a.tagName) ? a.id : null; };
+    const focusId = keep();
+    let html;
+    if (!D) {
+      html = `<div class="kcard dintro"><div class="auth-kicker biz">${I.car}<span>OnRoute Repartidores</span></div>
+        <h3>Gana dinero entregando pedidos</h3>
+        <ul class="sg-list"><li>Tú decides cuándo te conectas.</li><li>Recibes casi todo el costo de envío y el <b>100% de las propinas</b>.</li><li>Te pagamos con Stripe directo a tu banco, con retiro inmediato.</li></ul>
+        <p class="hint">Necesitas: licencia de manejo vigente, tu propio auto con registro y seguro vigentes, y un celular con GPS.</p></div>
+        ${drvFormHTML(false)}`;
+    } else if (D.status === "suspended") {
+      html = `<div class="kcard"><h3>Tu cuenta de repartidor está suspendida</h3><p class="hint">Si crees que es un error, escribe al soporte de OnRoute.</p></div>`;
+    } else if (D.status !== "active") {
+      html = `<div class="kcard dstate"><div class="dbig">⏳</div><h3>Tu registro está en revisión</h3><p class="hint">Revisamos tu licencia y tus datos, normalmente en 1 o 2 días. Te avisamos cuando estés aprobado.</p></div>
+        ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Corregir mis datos</button></div>`}`;
+    } else {
+      const I2 = S.drvStripeInfo, ready = D.stripeReady || (I2 && I2.ready), days = licDays(D.licenseExpires);
+      const lic = days < 0 ? `<div class="sg-err"><b>Tu licencia venció</b><span>Actualiza tu licencia para seguir repartiendo.</span></div>` : days <= 30 ? `<div class="banner info"><span><b>Tu licencia vence en ${days} día${days === 1 ? "" : "s"}.</b> Actualízala cuando la renueves.</span></div>` : "";
+      const mine = I2 && I2.missing ? I2.missing.filter(m => m.who === "user") : [];
+      const E = S.drvStripeErr;
+      html = `${lic}
+        <div class="kcard"><h4>Cobros</h4>
+          ${ready ? `<div class="sg-ok">✓ Banco conectado · listo para recibir pagos</div><p class="hint">Tus ganancias se depositan con Stripe. Puedes ver tus pagos y retirar al instante desde tu panel de Stripe Express.</p>`
+          : `<p class="hint">Conecta tu cuenta de banco con Stripe para recibir lo que ganes. Stripe te pide tu nombre, fecha de nacimiento, los últimos 4 del SSN y tu banco; también te manda tu formulario 1099 de impuestos.</p>
+             ${mine.length ? `<div class="sg-box"><b>Stripe todavía necesita:</b><ul class="sg-need">${mine.map(m => { const n = sgNeed(m); return `<li><b>${esc(n.title)}</b>${n.tip ? `<span>${esc(n.tip)}</span>` : ""}</li>`; }).join("")}</ul></div>` : ""}
+             ${E ? `<div class="sg-err" role="alert"><b>${esc(E.title)}</b><span>${esc(E.what)}</span>${E.detail ? `<details><summary>Detalle técnico</summary><code>${esc(E.detail)}</code></details>` : ""}</div>` : ""}
+             <div class="sg-btns"><button class="btn" data-act="drvstripe" ${S.drvStripeBusy ? "disabled" : ""}>${S.drvStripeBusy ? "Un momento…" : D.stripeAccount ? "Continuar en Stripe" : "Conectar mi banco"}</button>${D.stripeAccount ? `<button class="btn sec sm" data-act="drvstripechk" ${S.drvStripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}</div>`}
+        </div>
+        <div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Las entregas a domicilio se activan muy pronto en OnRoute. Cuando estén listas, aquí te conectas para ver los pedidos cerca de ti, aceptarlos y ganar por cada entrega.</p></div>
+        ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Actualizar mis datos o licencia</button></div>`}`;
+    }
+    html += `<div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-mode="cliente">${I.food} Pedir comida</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>`;
+    if (v.dataset.h !== html) { v.dataset.h = html; v.innerHTML = wrap(html); if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {} } } }
+  }
+  function drvSummaryHTML(D) {
+    const V = D.vehicle || {}, days = licDays(D.licenseExpires);
+    return `<h4>Tus datos</h4><dl class="dsum"><dt>Nombre</dt><dd>${esc(D.name)}</dd><dt>Teléfono</dt><dd>${esc(D.phone)}</dd>
+      <dt>Auto</dt><dd>${esc([V.make, V.model, V.year].filter(Boolean).join(" "))} · ${esc(V.color || "")} · <span class="mono">${esc(V.plate || "")}</span></dd>
+      <dt>Licencia</dt><dd>Vence ${esc(D.licenseExpires || "")}${days < 0 ? ` · <b class="bad-t">vencida</b>` : ""}</dd></dl>`;
   }
   function renderWelcome() {
     const v = $("#vWelcome");
@@ -742,21 +876,25 @@
           <span>Encuentra food trucks y restaurantes cerca de ti y pide directo, sin filas y sin comisiones de apps de delivery.</span><em>Ver negocios cerca →</em></button>
         <button class="wl-card biz" data-mode="negocio"><span class="wl-ic">${I.store}</span><b>Tengo un negocio</b>
           <span>Recibe pedidos en tu cocina, maneja tu menú, tus promociones y tus ventas. Para food trucks y restaurantes.</span><em>Entrar a mi negocio →</em></button>
+        <button class="wl-card drv" data-mode="repartidor"><span class="wl-ic">${I.car}</span><b>Quiero repartir</b>
+          <span>Gana dinero entregando pedidos con tu propio auto, en tus horarios. Solo necesitas tu licencia vigente.</span><em>Registrarme como repartidor →</em></button>
       </div>
       <p class="hint wl-foot">Puedes cambiar cuando quieras desde tu cuenta.</p>
     </div></div>`;
   }
   function renderNav() {
-    const role = roleOf(), n = S.route.name, biz = S.mode === "negocio";
+    const role = roleOf(), n = S.route.name, biz = S.mode === "negocio", drv = S.mode === "repartidor";
     const nav = $("#topNav"); if (!nav) return;
     document.body.dataset.mode = S.mode || "";
-    const logo = $(".top .logo"); if (logo) { logo.dataset.nav = biz ? "panel" : S.mode ? "home" : "welcome"; logo.setAttribute("href", biz ? "./#panel" : "./"); }
-    const tag = $("#modeTag"); if (tag) tag.hidden = !biz;
+    const logo = $(".top .logo"); if (logo) { logo.dataset.nav = biz ? "panel" : drv ? "driver" : S.mode ? "home" : "welcome"; logo.setAttribute("href", biz ? "./#panel" : drv ? "./#repartir" : "./"); }
+    const tag = $("#modeTag"); if (tag) { tag.hidden = !biz && !drv; tag.textContent = drv ? "Repartidores" : "Negocios"; }
     const items = [];
     if (n === "welcome") items.length = 0;
     else if (biz) {
       // Modo negocio: nada de "Explorar"; solo su panel (y regresar a él si está viendo su página como cliente).
       if (n !== "panel" && n !== "admin") items.push(["panel", "← Mi negocio", "./#panel", "cta"]);
+    } else if (drv) {
+      if (n !== "driver" && n !== "admin") items.push(["driver", "← Repartir", "./#repartir", "cta"]);
     } else {
       items.push(["home", "Explorar", "./"]);
       if (!S.user) items.push(["account", "Entrar", "./#cuenta", "cta"]);
@@ -849,12 +987,12 @@
     "auth/email-already-in-use": "Ya existe una cuenta con ese correo. Usa Entrar.", "auth/weak-password": "La contraseña necesita al menos 6 caracteres.", "auth/invalid-email": "Ese correo no es válido.",
     "auth/missing-password": "Escribe la contraseña.", "auth/popup-closed-by-user": "Cerraste la ventana de Google antes de terminar.", "auth/popup-blocked": "El navegador bloqueó la ventana de Google. Permite ventanas emergentes e intenta otra vez.",
     "auth/unauthorized-domain": "Este dominio no está autorizado en Firebase.", "auth/too-many-requests": "Demasiados intentos. Espera un momento.", "auth/network-request-failed": "Sin conexión. Revisa tu internet." };
-  const repaintAuth = () => { if (S.route.name === "account") paint(renderAccount); else paint(renderPanel); };
+  const repaintAuth = () => { if (S.route.name === "account") paint(renderAccount); else if (S.route.name === "driver") paint(renderDriver); else paint(renderPanel); };
   async function authAction(kind) {
     S.authMsg = "";
     const email = (($("#authEmail") || {}).value || "").trim(), pass = ($("#authPass") || {}).value || "";
     S.authName = (($("#authName") || {}).value || S.authName || "").trim();
-    if (!S.authRole) S.authRole = S.route.name === "panel" ? "business" : "customer";
+    if (!S.authRole) S.authRole = S.route.name === "panel" ? "business" : S.route.name === "driver" ? "driver" : "customer";
     try {
       if (kind === "login" || kind === "signup" || kind === "google") S.loginIntent = S.route.name;
       if (kind === "login") await auth.signInWithEmailAndPassword(email, pass);
@@ -904,20 +1042,30 @@
     if (S.ktab === "prof") renderProf();
   }
   function statusChip(s) { return s === "active" ? '<span class="chip open cdot">Publicado</span>' : s === "suspended" ? '<span class="chip closed cdot">Suspendido</span>' : '<span class="chip info cdot">En revisión</span>'; }
-  function authHTML() {
-    const biz = S.authRole === "business";
-    return `<div class="auth">
-      <div class="auth-kicker ${biz ? "biz" : ""}">${biz ? I.store : I.food}<span>${biz ? "OnRoute Negocios" : "OnRoute · Pedir comida"}</span></div>
-      <h3>${biz ? "Entra a tu negocio" : "Tu cuenta OnRoute"}</h3>
-      <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
-      <div class="field"><label for="authName">Tu nombre <span class="hint">(solo para crear cuenta)</span></label><input id="authName" autocomplete="name" maxlength="60" value="${esc(S.authName)}" placeholder="Ej. Ana López"></div>
+  function authFields() {
+    return `<div class="field"><label for="authName">Tu nombre <span class="hint">(solo para crear cuenta)</span></label><input id="authName" autocomplete="name" maxlength="60" value="${esc(S.authName)}" placeholder="Ej. Ana López"></div>
       <div class="field"><label for="authEmail">Correo</label><input id="authEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></div>
       <div class="field"><label for="authPass">Contraseña</label><input id="authPass" type="password" autocomplete="current-password" placeholder="Mínimo 6 caracteres"></div>
       ${S.authMsg ? `<p class="${/correo para cambiar/.test(S.authMsg) ? "ok-msg" : "err"}" role="alert">${esc(S.authMsg)}</p>` : ""}
       <div class="btns"><button class="btn" data-auth="login">Entrar</button><button class="btn sec" data-auth="signup">Crear cuenta</button><button class="btn sec sm" data-auth="reset" style="margin-left:auto">Olvidé mi contraseña</button></div>
       <div class="or">o</div>
       ${inApp ? `<p class="err">Estás en el navegador de ${inApp}. Google no deja entrar desde aquí: abre OnRoute en Chrome o Safari, o usa correo y contraseña.</p>` : ""}
-      <button class="btn google" data-auth="google" ${inApp ? "disabled" : ""}><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.4 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg>Continuar con Google</button>
+      <button class="btn google" data-auth="google" ${inApp ? "disabled" : ""}><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.4 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg>Continuar con Google</button>`;
+  }
+  function authHTML() {
+    const biz = S.authRole === "business", drv = S.authRole === "driver";
+    if (drv) return `<div class="auth">
+      <div class="auth-kicker biz">${I.car}<span>OnRoute Repartidores</span></div>
+      <h3>Reparte con OnRoute</h3>
+      <p>Usa tu auto para entregar pedidos de food trucks y restaurantes cerca de ti, cuando tú quieras. Crea tu cuenta o entra para registrarte.</p>
+      ${authFields()}
+      <p class="auth-switch">¿Solo quieres pedir comida? <a href="./" data-mode="cliente">Entra como cliente</a></p>
+    </div>`;
+    return `<div class="auth">
+      <div class="auth-kicker ${biz ? "biz" : ""}">${biz ? I.store : I.food}<span>${biz ? "OnRoute Negocios" : "OnRoute · Pedir comida"}</span></div>
+      <h3>${biz ? "Entra a tu negocio" : "Tu cuenta OnRoute"}</h3>
+      <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
+      ${authFields()}
       <p class="auth-switch">${biz ? `¿Solo quieres pedir comida? <a href="./" data-mode="cliente">Entra como cliente</a>` : `¿Tienes un food truck o restaurante? <a href="./#panel" data-mode="negocio">Entra a OnRoute Negocios</a>`}</p>
     </div>`;
   }
@@ -1599,7 +1747,7 @@ Reglas:
     const m = String((e && e.message) || ""), st = e && e.status, d = (e && e.detail) || "";
     if (m === "Failed to fetch" || /NetworkError|Load failed/.test(m)) return { title: "No pudimos comunicarnos con el servidor de pagos", what: "Revisa tu internet e intenta otra vez en un minuto. Si sigue pasando, avísale al soporte de OnRoute.", detail: m };
     if (st === 401) return { title: "Tu sesión venció", what: "Cierra sesión, vuelve a entrar con la cuenta del negocio e intenta otra vez.", detail: d };
-    if (st === 403) return { title: "Esta cuenta no es la dueña del negocio", what: "Entra con la cuenta con la que registraste el negocio.", detail: d };
+    if (st === 403 || st === 404) { const t = m.split(" Detalle:")[0]; return { title: t || "No tienes permiso para esto", what: S.route.name === "driver" ? "Revisa que entraste con tu cuenta de repartidor." : "Entra con la cuenta con la que registraste el negocio.", detail: d }; }
     if (/STRIPE_SECRET_KEY|FIREBASE_SERVICE_ACCOUNT|cuenta de servicio/.test(d)) return { title: "El servidor de pagos no está configurado", what: "Esto no es algo que debas arreglar tú. Avísale al soporte de OnRoute.", detail: d };
     if (/^Stripe:/.test(d)) return { title: "Stripe no aceptó la solicitud", what: "Intenta otra vez en un momento. Si se repite, avísale al soporte de OnRoute con el detalle de abajo.", detail: d };
     return { title: "Algo falló al conectar con Stripe", what: "Intenta otra vez. Si se repite, avísale al soporte de OnRoute con el detalle de abajo.", detail: d || m };
@@ -1768,7 +1916,7 @@ Reglas:
     if (!S.authReady || (S.user && !S.profileReady)) { v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
     if (!S.user) { S.authRole = S.authRole || "business"; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.isAdmin) { v.innerHTML = `<div class="panel">${head}<div class="p-auth"><div class="auth"><h3>Sin acceso</h3><p>Esta sección es solo para el administrador de OnRoute.</p><a class="btn sec" href="./" data-nav="home">Volver al inicio</a></div></div></div>`; return; }
-    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
+    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["drv", "Repartidores", I.car], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
     if (v.dataset.built !== "1") {
       v.dataset.built = "1";
       v.innerHTML = `<div class="panel">${head}<div class="pbody"><div class="kpanel scroll narrow" id="aBody"></div>
@@ -1791,6 +1939,7 @@ Reglas:
         <div class="kcard"><h4>Ventas de hoy por negocio</h4>${!st ? `<p class="hint">Toca el botón para contar los pedidos de hoy en todos los negocios.</p>` : !st.rows.length ? `<p class="hint">Hoy todavía no hay pedidos.</p>`
           : st.rows.map(r => `<div class="adm-row">${logoHTML(r.r)}<div style="min-width:0"><b>${esc(r.r.name)}</b><span>${r.count} pedidos</span></div><div class="acts"><b class="mono">${money(r.sales)}</b></div></div>`).join("")}
           <button class="btn sec sm" data-act="stats" style="margin-top:12px" ${S.statsBusy ? "disabled" : ""}>${S.statsBusy ? "Contando…" : st ? "Actualizar" : "Contar pedidos de hoy"}</button></div>
+        ${S.drivers.some(d => d.status === "pending") ? `<div class="banner info"><span><b>${S.drivers.filter(d => d.status === "pending").length} repartidor(es) esperando aprobación.</b></span><button class="btn sm" data-admtab="drv">Revisar</button></div>` : ""}
         ${pend.length ? `<div class="banner info"><span><b>${pend.length} negocio${pend.length > 1 ? "s" : ""} esperando aprobación.</b></span><button class="btn sm" data-admtab="biz">Revisar</button></div>` : ""}`;
     } else if (S.admTab === "biz") {
       const order = { pending: 0, active: 1, suspended: 2 };
@@ -1801,6 +1950,18 @@ Reglas:
           <div style="min-width:0"><b>${esc(r.name)}</b><span>${esc(KIND[r.kind] || "")}${r.cuisine ? " · " + esc(r.cuisine) : ""} · ${esc(r.id)}${owner(r.ownerUid) ? " · " + esc(owner(r.ownerUid)) : ""}${r.createdAt ? " · " + new Date(r.createdAt).toLocaleDateString("es-US") : ""}</span></div>
           <div class="acts">${statusChip(r.status)}<a class="btn sm sec" href="./?r=${esc(r.id)}" data-rest="${esc(r.id)}">Ver</a>
             ${r.status !== "active" ? `<button class="btn sm green" data-adm="active" data-id="${esc(r.id)}">Aprobar</button>` : `<button class="btn sm sec" data-adm="suspended" data-id="${esc(r.id)}">Suspender</button>`}</div></div>`).join("")}</div>`;
+    } else if (S.admTab === "drv") {
+      const order = { pending: 0, active: 1, suspended: 2 };
+      const list = S.drivers.slice().sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || num(b.createdAt) - num(a.createdAt));
+      el.innerHTML = `<div class="ptitle"><h3>Repartidores</h3><p>Revisa la licencia y los datos de cada repartidor antes de aprobarlo. Aprobado, puede conectar su banco y recibir entregas.</p></div>
+        <div class="kcard">${!S.driversReady ? `<div class="empty">Cargando…</div>` : !list.length ? `<div class="empty">Todavía no hay repartidores registrados.</div>` : list.map(d => { const V = d.vehicle || {}, days = licDays(d.licenseExpires), lic = S.licView && S.licView[d.id];
+          return `<div class="adm-row drow"><span class="rlogo">${I.car}</span>
+          <div style="min-width:0"><b>${esc(d.name || "")}</b><span>${esc(d.phone || "")} · ${esc(d.email || "")}</span>
+            <span>${esc([V.make, V.model, V.year].filter(Boolean).join(" "))} · ${esc(V.color || "")} · ${esc(V.plate || "")}</span>
+            <span>Licencia vence ${esc(d.licenseExpires || "?")}${days < 0 ? " · VENCIDA" : ""} · Banco: ${d.stripeReady ? "conectado" : d.stripeAccount ? "a medias" : "sin conectar"}</span>
+            ${lic ? `<img class="lic-img" src="${esc(lic)}" alt="Licencia de ${esc(d.name || "")}">` : ""}</div>
+          <div class="acts">${statusChip(d.status)}<button class="btn sm sec" data-act="licview" data-id="${esc(d.id)}">${lic ? "Ocultar licencia" : "Ver licencia"}</button>
+            ${d.status !== "active" ? `<button class="btn sm green" data-admdrv="active" data-id="${esc(d.id)}" ${days < 0 ? "disabled" : ""}>Aprobar</button>` : `<button class="btn sm sec" data-admdrv="suspended" data-id="${esc(d.id)}">Suspender</button>`}</div></div>`; }).join("")}</div>`;
     } else if (S.admTab === "cli") {
       const list = S.users.slice().sort((a, b) => num(b.createdAt) - num(a.createdAt));
       el.innerHTML = `<div class="ptitle"><h3>Usuarios registrados</h3><p>${list.filter(u => u.role !== "business").length} clientes · ${list.filter(u => u.role === "business").length} negocios</p></div>
@@ -1887,6 +2048,17 @@ Reglas:
     if (d.act === "import") { importLegacy(); return; }
     if (d.act === "saveprof") { saveProf(); return; }
     if (d.act === "stripego") { stripeGo(); return; }
+    if (d.act === "drvsave") { drvSave(); return; }
+    if (d.act === "drvedit") { S.drvEdit = true; S.drvForm = null; S.drvMsg = ""; paint(renderDriver); return; }
+    if (d.act === "drvstripe") { drvStripe("start"); return; }
+    if (d.act === "drvstripechk") { drvStripe("status"); return; }
+    if (d.act === "licview") {
+      const id = d.id; S.licView = S.licView || {};
+      if (S.licView[id]) { delete S.licView[id]; paint(renderAdmin); return; }
+      db.doc(`drivers/${id}/docs/license`).get().then(x => { S.licView[id] = x.exists ? safeImg(x.data().data) || "" : ""; if (!S.licView[id]) toast("Este repartidor no subió foto."); paint(renderAdmin); }).catch(() => toast("No se pudo abrir la licencia."));
+      return;
+    }
+    if (d.admdrv) { db.doc(`drivers/${d.id}`).update({ status: d.admdrv }).then(() => toast(d.admdrv === "active" ? "Repartidor aprobado." : "Repartidor suspendido.")).catch(e => { console.error(e); toast("No se pudo cambiar. Revisa las reglas de Firestore."); }); return; }
     if (d.act === "stripechk") { stripeStatus(); return; }
     if (d.act === "hcopy") { pfEnsure(); const m = S.pf.hours[1]; if (m.closed) { toast("Primero abre el lunes."); return; } S.pf.hours = S.pf.hours.map(x => x.closed ? x : { open: m.open, close: m.close }); S.pfDirty = true; S.pfMsg = "Horario copiado. Toca Guardar perfil."; paint(renderProf); return; }
     if (d.act === "pfhere") { if (!navigator.geolocation) return toast("Este navegador no tiene GPS."); navigator.geolocation.getCurrentPosition(p => setPfPos(p.coords.latitude, p.coords.longitude), () => toast("No se pudo obtener tu ubicación."), { enableHighAccuracy: true, timeout: 15000 }); return; }
@@ -1930,6 +2102,7 @@ Reglas:
     if (d.loy) { prEnsure(); S.pr.loyalty[d.loy] = t.value; t.classList.remove("bad"); prTouch(); return; }
     if (d.reg) { S.reg[d.reg] = t.value; if (d.reg === "name") { const s = $(".slug"); if (s) s.textContent = `Tu enlace: ${BASE}?r=${slugify(t.value) || "tu-negocio"}`; } return; }
     if (d.pf) { pfEnsure(); S.pf[d.pf] = t.value; S.pfDirty = true; return; }
+    if (d.df) { drvEnsure()[d.df] = t.value; return; }
     if (d.ht !== undefined) { pfEnsure(); const day = S.pf.hours[Number(d.ht)]; if (okT(t.value)) { day[d.hk] = t.value; S.pfDirty = true; $("#pfHours").dataset.v = JSON.stringify(S.pf.hours); } return; }
     if (d.cfg) { meEnsure(); S.meCfg[d.cfg] = t.value; t.classList.remove("bad"); meTouch(); return; }
     if (d.xf) { meEnsure(); const k = Number(t.closest(".xrow").dataset.x); S.meExtras[k][d.xf] = t.value; t.classList.remove("bad"); meTouch(); return; }
@@ -1944,6 +2117,14 @@ Reglas:
   document.addEventListener("change", e => {
     const t = e.target, d = t.dataset;
     if (d.vari) { S.vsel[d.vari] = t.checked; paint(renderRest); return; }
+    if (d.da) { drvEnsure().attest[d.da] = t.checked; return; }
+    if (d.df && t.type === "date") { drvEnsure()[d.df] = t.value; return; }
+    if (t.id === "drvLicIn") {
+      const f = t.files && t.files[0]; t.value = ""; if (!f) return;
+      S.drvMsg = "Preparando la foto…"; paint(renderDriver);
+      toDataUrl(f, 1400, 380000).then(u => { S.drvLic = u; S.drvMsg = ""; paint(renderDriver); }).catch(e => { S.drvMsg = photoErr(e); paint(renderDriver); });
+      return;
+    }
     if (d.hopen !== undefined) { pfEnsure(); S.pf.hours[Number(d.hopen)] = t.checked ? { open: "10:00", close: "18:00" } : { closed: true }; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el horario."; paint(renderProf); return; }
     if (d.photo !== undefined && t.type === "file") { onPhoto(t); return; }
     if (t.id === "aiIn") { onMenuPhotos(t); return; }
