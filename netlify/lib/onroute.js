@@ -125,4 +125,40 @@ async function recipientStatus(id) {
   return { ready: !!(tr && tr.status === "active"), cap: tr ? String(tr.status || "") : "", reasons: tr && Array.isArray(tr.status_details) ? tr.status_details.map(d => String(d.code || "")).filter(Boolean) : [], pending: missing.length, missing };
 }
 
-module.exports = { acctStatus, recipientStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };
+// ---- Entregas a domicilio ----
+// Tarifa por millas (distancia en línea recta × 1.3 para aproximar calles). El repartidor recibe el 80%
+// del envío y el 100% de la propina; OnRoute se queda con el 20% del envío.
+const DELIVERY = { base: 2.99, perMile: 1.25, minFee: 3.99, maxMiles: 8, roadFactor: 1.3, driverShare: 0.8 };
+const r2 = n => Math.round(n * 100) / 100;
+function miles(a, b) {
+  const R = 3958.8, toR = x => x * Math.PI / 180, dLat = toR(b.lat - a.lat), dLng = toR(b.lng - a.lng);
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(toR(a.lat)) * Math.cos(toR(b.lat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+const roadMiles = (a, b) => r2(miles(a, b) * DELIVERY.roadFactor);
+const deliveryFee = mi => r2(Math.max(DELIVERY.minFee, DELIVERY.base + DELIVERY.perMile * mi));
+const driverPay = (fee, tip) => r2(fee * DELIVERY.driverShare + tip);
+function restPos(r) {
+  if (r.kind === "truck" && r.loc && typeof r.loc.lat === "number") return { lat: r.loc.lat, lng: r.loc.lng };
+  if (typeof r.lat === "number" && typeof r.lng === "number") return { lat: r.lat, lng: r.lng };
+  return null;
+}
+// Paga al repartidor (transferencia de Stripe desde la cuenta de OnRoute). Si todavía no hay saldo disponible,
+// queda "pending" y la función programada payDrivers lo vuelve a intentar cada hora.
+async function payDriver(ref, d) {
+  if (!d || d.payout === "paid" || !(d.driverPay > 0)) return "skip";
+  const ds = await db().doc(`drivers/${d.driverUid}`).get(), D = ds.exists ? ds.data() : null;
+  if (!D || !D.stripeAccount) { await ref.update({ payout: "pending", payoutErr: "El repartidor no ha conectado su banco." }); return "pending"; }
+  try {
+    const t = await stripe().transfers.create({ amount: Math.round(d.driverPay * 100), currency: "usd", destination: D.stripeAccount, transfer_group: `onroute-${ref.id}`,
+      description: `OnRoute · entrega del pedido #${d.num || ""} (${d.rname || d.rid})`, metadata: { deliveryId: ref.id, rid: d.rid, driverUid: d.driverUid } },
+      { idempotencyKey: `onroute-pay-${ref.id}` });
+    await ref.update({ payout: "paid", payoutAt: Date.now(), transferId: t.id, payoutErr: null });
+    return "paid";
+  } catch (e) {
+    await ref.update({ payout: "pending", payoutErr: String(e.message || e).slice(0, 200) });
+    return "pending";
+  }
+}
+
+module.exports = { DELIVERY, roadMiles, deliveryFee, driverPay, restPos, payDriver, r2, acctStatus, recipientStatus, db, stripe, handler, userOf, inHours, truckLive, SITE, RID };

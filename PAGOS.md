@@ -25,6 +25,17 @@ Las promociones por ahora solo aplican a pedidos Al recoger.
 | `connectStatus` | Revisa si la cuenta del negocio ya puede cobrar |
 | `driverStart` | Crea la cuenta Express del repartidor aprobado (solo recibe transferencias) y le da el enlace de registro |
 | `driverStatus` | Revisa si el repartidor ya puede recibir pagos |
+| `deliveryAction` | El repartidor acepta, suelta, recoge o entrega un pedido; al entregar se le paga |
+| `payDrivers` | Programada cada hora: paga las entregas pendientes cuando ya hay saldo disponible |
+
+## Entregas a domicilio
+- El negocio la activa en **Perfil → Entrega a domicilio** (radio de 2 a 8 millas). Requiere pagos con tarjeta conectados.
+- Envío = $2.99 + $1.25 por milla (mínimo $3.99, millas en línea recta × 1.3). Lo calcula el servidor.
+- El cobro sigue siendo en la cuenta del negocio; el envío y la propina se cobran como comisión de aplicación
+  (`application_fee_amount`) y llegan a la cuenta de OnRoute.
+- Al entregar, OnRoute transfiere al repartidor el 80% del envío + el 100% de la propina. OnRoute se queda con el 20% del envío.
+- Si todavía no hay saldo disponible (Stripe retiene unos días), la entrega queda "pago pendiente" y `payDrivers` reintenta cada hora.
+- En pruebas usa la tarjeta `4000 0000 0000 0077`: su dinero queda disponible al instante y el pago al repartidor sale enseguida.
 
 ## Variables de entorno en Netlify (nunca en GitHub ni en el chat)
 Netlify → onroute-pagos → **Site configuration → Environment variables**:

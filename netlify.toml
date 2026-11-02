@@ -14,3 +14,7 @@
   # Se copian tal cual (no se empaquetan): firebase-admin usa rutas como "firebase-admin/app".
   external_node_modules = ["firebase-admin", "stripe"]
   included_files = ["netlify/lib/**"]
+
+# Cada hora se pagan las entregas que quedaron pendientes por falta de saldo disponible.
+[functions."payDrivers"]
+  schedule = "@hourly"

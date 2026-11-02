@@ -1,7 +1,7 @@
 // El cliente paga con tarjeta: se calcula el total con los precios reales del menú,
 // se crea el pedido como "pending" y se abre Stripe Checkout en la cuenta de Stripe del negocio (Connect).
 // El dinero llega directo al negocio y Stripe le cobra a él su comisión; OnRoute no se queda con nada.
-const { db, stripe, handler, userOf, acctStatus, inHours, truckLive, SITE, RID } = require("../lib/onroute");
+const { db, stripe, handler, userOf, acctStatus, inHours, truckLive, SITE, RID, DELIVERY, roadMiles, deliveryFee, driverPay, restPos, r2 } = require("../lib/onroute");
 
 function menuFromDb(items) {
   return (items || []).filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length).map(x => ({
@@ -12,7 +12,7 @@ function menuFromDb(items) {
 
 exports.handler = handler("createCheckout", async (body, event) => {
   const who = String(body.name || "").trim().slice(0, 40);
-  const pickup = body.pickup === "30" ? "30" : "asap";
+  const pickup = body.delivery ? "delivery" : body.pickup === "30" ? "30" : "asap";
   const cart = Array.isArray(body.items) ? body.items.slice(0, 30) : [];
   if (!who) return [400, { error: "Falta el nombre para el pedido." }];
   if (!cart.length) return [400, { error: "El carrito está vacío." }];
@@ -57,12 +57,36 @@ exports.handler = handler("createCheckout", async (body, event) => {
     total += price * qty;
   }
   total = Math.round(total * 100) / 100;
+  const food = total;
+
+  // Entrega a domicilio: solo si el negocio la ofrece; la tarifa se calcula aquí con la distancia real.
+  let dlv = null, appFee = 0;
+  if (body.delivery) {
+    const B = body.delivery, conf = R.delivery || {};
+    if (!conf.on) return [409, { error: "Este negocio no ofrece entrega a domicilio." }];
+    const to = { lat: Number(B.lat), lng: Number(B.lng) }, from = restPos(R);
+    if (!from) return [409, { error: "El negocio no tiene su ubicación para calcular el envío." }];
+    if (!(Math.abs(to.lat) <= 90 && Math.abs(to.lng) <= 180) || (to.lat === 0 && to.lng === 0)) return [400, { error: "Elige tu dirección de entrega." }];
+    const address = String(B.address || "").trim().slice(0, 160), phone = String(B.phone || "").trim().slice(0, 30);
+    if (address.length < 5) return [400, { error: "Escribe tu dirección de entrega." }];
+    if (phone.replace(/\D/g, "").length < 7) return [400, { error: "Escribe tu teléfono para que el repartidor te pueda llamar." }];
+    const mi = roadMiles(from, to), radius = Math.min(Number(conf.radius) || 5, DELIVERY.maxMiles);
+    if (mi > radius) return [409, { error: `Tu dirección está a ${mi.toFixed(1)} millas y ${R.name} entrega hasta ${radius} millas.` }];
+    const fee = deliveryFee(mi), tip = r2(Math.min(100, Math.max(0, Number(body.tip) || 0)));
+    lineItems.push({ quantity: 1, price_data: { currency: "usd", unit_amount: Math.round(fee * 100), product_data: { name: `Envío a domicilio (${mi.toFixed(1)} mi)` } } });
+    if (tip > 0) lineItems.push({ quantity: 1, price_data: { currency: "usd", unit_amount: Math.round(tip * 100), product_data: { name: "Propina para el repartidor (100% para él)" } } });
+    total = r2(total + fee + tip);
+    appFee = Math.round((fee + tip) * 100);
+    dlv = { address, unit: String(B.unit || "").trim().slice(0, 40), notes: String(B.notes || "").trim().slice(0, 200), phone, lat: to.lat, lng: to.lng,
+      miles: mi, fee, tip, driverPay: driverPay(fee, tip), status: "pending" };
+  }
   if (total < 0.5) return [400, { error: "El pago con tarjeta debe ser de al menos $0.50." }];
   if (total >= 1000) return [400, { error: "El pedido es demasiado grande." }];
 
   const ref = db().collection(`restaurants/${rid}/orders`).doc();
   const num = "T" + String(Math.floor(100 + Math.random() * 900));
   const order = { num, who, items, total, status: "pending", pickup, pay: "card", paid: false, createdAt: Date.now() };
+  if (dlv) { order.delivery = dlv; order.food = food; }
   const note = String(body.note || "").trim().slice(0, 200); if (note) order.note = note;
   if (uid) { order.uid = uid; order.cart = cartMap; order.rname = String(R.name || "").slice(0, 60); }
   await ref.set(order);
@@ -72,7 +96,8 @@ exports.handler = handler("createCheckout", async (body, event) => {
     line_items: lineItems,
     client_reference_id: ref.id,
     metadata: { rid, orderId: ref.id, num, uid: uid || "" },
-    payment_intent_data: { description: `OnRoute · pedido #${num} · ${String(R.name || rid).slice(0, 60)}`, metadata: { rid, orderId: ref.id } },
+    payment_intent_data: { description: `OnRoute · pedido #${num} · ${String(R.name || rid).slice(0, 60)}`, metadata: { rid, orderId: ref.id },
+      ...(appFee ? { application_fee_amount: appFee } : {}) },
     success_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=ok`,
     cancel_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=cancelado`,
     expires_at: Math.floor(Date.now() / 1000) + 31 * 60,

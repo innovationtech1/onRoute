@@ -4,6 +4,21 @@
 //  - account.updated: el negocio terminó (o no) de configurar su cuenta para cobrar con tarjeta.
 const { db, stripe, RID } = require("../lib/onroute");
 
+// Pedido a domicilio pagado: se publica para que los repartidores en línea lo vean.
+// Los datos exactos del cliente van aparte (private/info) y solo los ve el repartidor que acepta.
+async function publishDelivery(rid, orderId, o, now) {
+  const rs = await db().doc(`restaurants/${rid}`).get(), R = rs.exists ? rs.data() : {};
+  const from = R.kind === "truck" && R.loc && typeof R.loc.lat === "number" ? { lat: R.loc.lat, lng: R.loc.lng } : { lat: R.lat, lng: R.lng };
+  const D = o.delivery, ref = db().doc(`deliveries/${orderId}`);
+  await ref.set({ rid, oid: orderId, rname: String(R.name || rid).slice(0, 60), num: o.num,
+    pickup: { lat: from.lat, lng: from.lng, address: String(R.address || (R.loc && R.loc.stop) || "").slice(0, 120), phone: String(R.phone || "").slice(0, 30) },
+    drop: { lat: Math.round(D.lat * 100) / 100, lng: Math.round(D.lng * 100) / 100, area: String(D.address || "").split(",").slice(1, 2).join("").trim().slice(0, 40) },
+    miles: D.miles, fee: D.fee, tip: D.tip, driverPay: D.driverPay, items: (o.items || []).reduce((a, it) => a + (Number(it.qty) || 0), 0),
+    status: "searching", kitchen: "new", driverUid: null, payout: "none", createdAt: now, paidAt: now });
+  await ref.collection("private").doc("info").set({ name: o.who, phone: D.phone, address: D.address, unit: D.unit || "", notes: D.notes || "", lat: D.lat, lng: D.lng });
+  await db().doc(`restaurants/${rid}/orders/${orderId}`).update({ "delivery.status": "searching" });
+}
+
 exports.handler = async event => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Usa POST" };
   const raw = event.isBase64Encoded ? Buffer.from(event.body || "", "base64") : Buffer.from(event.body || "", "utf8");
@@ -33,6 +48,7 @@ exports.handler = async event => {
     if ((ev.type === "checkout.session.completed" || ev.type === "checkout.session.async_payment_succeeded") && s.payment_status === "paid") {
       const now = Date.now(); // createdAt = hora del pago, para que entre arriba en la cocina
       await ref.update({ status: "new", paid: true, paidAt: now, createdAt: now, paidTotal: (s.amount_total || 0) / 100, paymentIntent: String(s.payment_intent || "") });
+      if (o.delivery) await publishDelivery(rid, orderId, o, now);
       if (o.uid) await db().doc(`users/${o.uid}/orders/${orderId}`).set({ rid, rname: o.rname || rid, num: o.num, total: o.total, items: o.items, cart: o.cart || {}, pay: "card", createdAt: now });
     } else if (ev.type === "checkout.session.expired" || ev.type === "checkout.session.async_payment_failed") {
       await ref.update({ status: "cancelled" });

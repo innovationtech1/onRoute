@@ -24,6 +24,11 @@
     const h = Math.sin(dLa / 2) ** 2 + Math.cos(a.lat * r) * Math.cos(b.lat * r) * Math.sin(dLo / 2) ** 2;
     return 2 * R * Math.asin(Math.sqrt(h));
   }
+  // Entrega a domicilio (el servidor de pagos calcula el precio final con estos mismos números).
+  const DLV = { base: 2.99, perMile: 1.25, minFee: 3.99, maxMiles: 8, roadFactor: 1.3, driverShare: 0.8 };
+  const r2 = n => Math.round(n * 100) / 100;
+  const dlvFee = mi => r2(Math.max(DLV.minFee, DLV.base + DLV.perMile * mi));
+  const roadMi = (a, b) => r2(miles(a, b) * DLV.roadFactor);
   const fmtMi = m => (m < 0.1 ? "a pasos" : m < 10 ? m.toFixed(1) + " mi" : Math.round(m) + " mi");
   const ls = {
     get(k, d = null) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
@@ -442,15 +447,24 @@
     if (S.myOrder) watchMine();
     paint(renderRest);
   }
-  function closeRest() { rUnsubs.forEach(u => { try { u(); } catch (e) {} }); rUnsubs = []; if (mineUnsub) { mineUnsub(); mineUnsub = null; } S.rid = null; }
+  function closeRest() { rUnsubs.forEach(u => { try { u(); } catch (e) {} }); rUnsubs = []; if (mineUnsub) { mineUnsub(); mineUnsub = null; } if (mineDlvUnsub) { mineDlvUnsub(); mineDlvUnsub = null; } S.rid = null; }
+  let mineDlvUnsub = null;
   function watchMine() {
+    if (mineDlvUnsub) { mineDlvUnsub(); mineDlvUnsub = null; } S.mineDlv = null;
     if (mineUnsub) mineUnsub();
     const rid = S.rid, id = S.myOrder; S.mineReady = false;
     mineUnsub = db.doc(`restaurants/${rid}/orders/${id}`).onSnapshot(
       d => {
         const prev = S.mine && S.mine.id === id ? S.mine.status : null;
+        const dprev = S.mine && S.mine.id === id && S.mine.delivery ? S.mine.delivery.status : null;
         S.mine = d.exists ? { id: d.id, ...d.data() } : null; S.mineReady = true;
-        if (S.mine && S.mine.status === "ready" && prev && prev !== "ready") readyAlert(S.mine);
+        if (S.mine && !S.mine.delivery && S.mine.status === "ready" && prev && prev !== "ready") readyAlert(S.mine);
+        if (S.mine && S.mine.delivery) {
+          const ds = S.mine.delivery.status;
+          if (["searching", "assigned", "picked"].includes(ds) && !mineDlvUnsub) mineDlvUnsub = db.doc(`deliveries/${id}`).onSnapshot(x => { S.mineDlv = x.exists ? x.data() : null; paint(renderRest); }, () => {});
+          if (dprev && dprev !== ds && ds === "picked") readyAlert({ ...S.mine, num: S.mine.num }, "¡Tu pedido va en camino! 🚗", "Tu repartidor ya recogió tu pedido.");
+          if (dprev && dprev !== ds && ds === "delivered") { readyAlert(S.mine, "¡Pedido entregado! 🌮", "Tu repartidor marcó tu pedido como entregado. ¡Buen provecho!"); if (mineDlvUnsub) { mineDlvUnsub(); mineDlvUnsub = null; } }
+        }
         paint(renderRest);
       },
       () => { S.mine = null; S.mineReady = true; paint(renderRest); }
@@ -575,13 +589,68 @@
     return `<div class="perk loyal ${st.ready ? "ready" : ""}">${I.gift}<div class="loyal-in"><span>${st.ready ? `<b>¡Completaste tu tarjeta!</b> Tu siguiente pedido lleva: ${esc(L.reward)}.` : `<b>Cliente frecuente · ${st.have} de ${L.every} sellos</b> · Al juntar ${L.every}, tu siguiente pedido lleva: ${esc(L.reward)}.`}</span>${dots(st.have)}</div></div>`;
   }
   // Total con la promoción que aplique (solo en pedidos que se pagan al recoger).
+  const dlvOn = R => !!(R && R.delivery && R.delivery.on && cardOn() && restPos(R));
+  const isDlv = () => S.recv === "delivery" && dlvOn(S.R);
+  function dlvQuote() {
+    const R = S.R, D = S.dlv || {};
+    if (!isDlv() || typeof D.lat !== "number") return null;
+    const mi = roadMi(restPos(R), D), radius = Math.min(Number(R.delivery.radius) || 5, DLV.maxMiles);
+    return { mi, radius, far: mi > radius, fee: dlvFee(mi) };
+  }
   function cartTotals() {
-    const sub = Math.round(subtotal() * 100) / 100, card = cardOn() && S.payMode === "card";
+    const sub = Math.round(subtotal() * 100) / 100, dl = isDlv(), card = dl || (cardOn() && S.payMode === "card");
     const pr = card ? null : bestPromo(S.R, sub, S.promoCode);
-    return { sub, pr, tot: Math.round((sub - (pr ? pr.off : 0)) * 100) / 100, card };
+    const q = dl ? dlvQuote() : null, fee = q && !q.far ? q.fee : 0, tip = dl ? r2(Number(S.tip) || 0) : 0;
+    return { sub, pr, tot: Math.round((sub - (pr ? pr.off : 0) + fee + tip) * 100) / 100, card, dl, q, fee, tip };
+  }
+  // Direcciones: búsqueda con OpenStreetMap (Photon), cerca del negocio.
+  let addrTimer = null, addrSeq = 0;
+  function addrSearch(q) {
+    clearTimeout(addrTimer);
+    if (q.trim().length < 4) { S.dlvSug = []; paintSug(); return; }
+    addrTimer = setTimeout(async () => {
+      const seq = ++addrSeq, near = restPos(S.R) || { lat: 29.42, lng: -98.49 };
+      try {
+        const r = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&lat=${near.lat}&lon=${near.lng}&limit=5&lang=en`);
+        const j = await r.json(); if (seq !== addrSeq) return;
+        S.dlvSug = (j.features || []).map(f => { const p = f.properties || {}, c = f.geometry && f.geometry.coordinates;
+          const line1 = [p.housenumber, p.street || p.name].filter(Boolean).join(" "), line2 = [p.city || p.district, p.state, p.postcode].filter(Boolean).join(", ");
+          return c ? { label: [line1, line2].filter(Boolean).join(", "), lat: c[1], lng: c[0] } : null; }).filter(Boolean);
+      } catch (e) { S.dlvSug = []; }
+      paintSug();
+    }, 350);
+  }
+  function paintSug() {
+    const box = $("#dlvSug"); if (!box) return;
+    box.innerHTML = (S.dlvSug || []).map((x, i) => `<button type="button" data-sug="${i}">${I.pin}<span>${esc(x.label)}</span></button>`).join("");
+    box.hidden = !(S.dlvSug || []).length;
+  }
+  function dlvHere() {
+    if (!navigator.geolocation) return toast("Este navegador no tiene GPS.");
+    S.dlvMsg = "Buscando tu ubicación…"; paint(renderRest);
+    navigator.geolocation.getCurrentPosition(async p => {
+      const lat = p.coords.latitude, lng = p.coords.longitude; let label = "";
+      try { const j = await (await fetch(`https://photon.komoot.io/reverse?lat=${lat}&lon=${lng}&lang=en`)).json(); const q = (j.features || [])[0]; if (q) { const x = q.properties; label = [[x.housenumber, x.street || x.name].filter(Boolean).join(" "), x.city, x.state].filter(Boolean).join(", "); } } catch (e) {}
+      S.dlv = { ...(S.dlv || {}), lat, lng, address: label || `Mi ubicación (${lat.toFixed(4)}, ${lng.toFixed(4)})` }; S.dlvMsg = label ? "" : "Revisa que la dirección sea correcta y agrega detalles abajo."; ls.set("onroute-dlv", S.dlv); paint(renderRest);
+    }, () => { S.dlvMsg = "No pudimos obtener tu ubicación. Escribe tu dirección."; paint(renderRest); }, { enableHighAccuracy: true, timeout: 12000 });
+  }
+  function dlvHTML(R, q, sub) {
+    const D = S.dlv || {}, tips = [0, 2, 3, 5];
+    return `<div class="dlv-box">
+      <div class="field"><label for="dlvAddr">Dirección de entrega</label>
+        <div class="addr-in"><input id="dlvAddr" autocomplete="street-address" placeholder="Calle y número, ciudad" value="${esc(D.address || "")}"><button class="btn sec sm" data-act="dlvhere" type="button">${I.target} Aquí</button></div>
+        <div class="sug" id="dlvSug" hidden></div>
+        ${S.dlvMsg ? `<p class="hint">${esc(S.dlvMsg)}</p>` : ""}
+        ${q ? (q.far ? `<p class="err">Tu dirección está a ${q.mi.toFixed(1)} mi y ${esc(R.name)} entrega hasta ${q.radius} mi. Elige recoger en el negocio.</p>` : `<p class="ok-msg">${q.mi.toFixed(1)} mi · envío ${money(q.fee)}</p>`) : `<p class="hint">Envío desde ${money(DLV.minFee)} según las millas (hasta ${Math.min(Number(R.delivery.radius) || 5, DLV.maxMiles)} mi).</p>`}</div>
+      <div class="dgrid"><div class="field"><label for="dlvUnit">Depto., casa o portón <span class="hint">(opcional)</span></label><input id="dlvUnit" data-dlv="unit" maxlength="40" value="${esc(D.unit || "")}" placeholder="Ej. Depto 4B, código 1234"></div>
+        <div class="field"><label for="dlvPhone">Teléfono</label><input id="dlvPhone" data-dlv="phone" maxlength="30" inputmode="tel" autocomplete="tel" value="${esc(D.phone || (S.profile && S.profile.phone) || "")}" placeholder="Para que el repartidor te llame"></div></div>
+      <div class="field"><label for="dlvNotes">Indicaciones para el repartidor <span class="hint">(opcional)</span></label><input id="dlvNotes" data-dlv="notes" maxlength="200" value="${esc(D.notes || "")}" placeholder="Ej. casa azul, dejar en la puerta"></div>
+      <div class="field"><span class="flabel">Propina para el repartidor <span class="hint">(100% para él)</span></span>
+        <div class="tips">${tips.map(t => `<button type="button" data-tip="${t}" aria-pressed="${Number(S.tip || 0) === t}">${t ? money(t) : "Sin propina"}</button>`).join("")}</div></div>
+    </div>`;
   }
   function cartHTML() {
-    const R = S.R, { sub, pr, tot, card } = cartTotals(), closed = !isOpen(R) || R.status !== "active";
+    const R = S.R, { sub, pr, tot, card, dl, q, fee, tip } = cartTotals(), closed = !isOpen(R) || R.status !== "active";
     const L = loyaltyOf(R), st = myStamps(S.rid, L), hasCodes = promosOf(R).some(p => p.code);
     const near = !pr && !card ? autoPromos(R).filter(p => p.min > sub).sort((a, b) => a.min - b.min)[0] : null;
     if (!S.name && S.profile && S.profile.name) S.name = S.profile.name;
@@ -592,14 +661,19 @@
         <div class="lines">${Object.entries(S.cart).map(([k, q]) => { const p = parseKey(k); return `
           <div class="line"><div class="nm"><b>${esc(p.m.name)}</b><small>${esc([p.m.opts.length > 1 ? p.o.label : "", p.v ? variantOf(R).label : "", p.exs.length ? "+ " + p.exs.map(e => e.label).join(", ") : ""].filter(Boolean).join(" · "))}${p.m.opts.length > 1 || p.v || p.exs.length ? " · " : ""}<span class="mono">${money(p.price)}</span></small></div>
           <div class="qty"><button data-dec="${esc(k)}" aria-label="Quitar uno">−</button><b class="mono">${q}</b><button data-inc="${esc(k)}" aria-label="Agregar uno">+</button></div></div>`; }).join("")}</div>
-        <div class="field"><span class="flabel">¿Cuándo pasas por él?</span>
+        ${dlvOn(R) ? `<div class="field"><span class="flabel">¿Cómo lo recibes?</span>
+          <div class="choices">
+            <button data-recv="pickup" aria-pressed="${!dl}"><b>Recoger</b>En el negocio, sin costo</button>
+            <button data-recv="delivery" aria-pressed="${dl}"><b>${I.car} A domicilio</b>Te lo lleva un repartidor</button>
+          </div></div>` : ""}
+        ${dl ? dlvHTML(R, q, sub) : `<div class="field"><span class="flabel">¿Cuándo pasas por él?</span>
           <div class="choices">
             <button data-pickup="asap" aria-pressed="${S.pickup === "asap"}"><b>Lo antes posible</b>Unos 15 min</button>
             <button data-pickup="30" aria-pressed="${S.pickup === "30"}"><b>En 30 minutos</b>Llego más tarde</button>
-          </div></div>
+          </div></div>`}
         <div class="field"><label for="noteInput">Notas para la cocina <span class="hint">(opcional)</span></label><textarea id="noteInput" maxlength="200" rows="2" placeholder="Ej. sin cebolla, salsa aparte">${esc(S.note || "")}</textarea></div>
         <div class="field"><label for="nameInput">Nombre para el pedido</label><input id="nameInput" maxlength="40" placeholder="Ej. Ana" value="${esc(S.name)}" autocomplete="given-name"></div>
-        ${cardOn() ? `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices">
+        ${cardOn() && !dl ? `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices">
             <button data-paymode="card" aria-pressed="${S.payMode === "card"}"><b>Tarjeta ahora</b>Pago seguro con Stripe</button>
             <button data-paymode="cash" aria-pressed="${S.payMode === "cash"}"><b>Al recoger</b>En el negocio</button></div></div>` : ""}
         ${hasCodes && !card ? `<div class="field"><label for="promoInput">Código de promoción <span class="hint">(opcional)</span></label>
@@ -608,13 +682,43 @@
         ${near ? `<div class="promo-hint">${I.tag}<span>Te faltan <b class="mono">${money(near.min - sub)}</b> para ${esc(near.title || promoText(near))}.</span></div>` : ""}
         ${st && st.ready ? (card ? `<div class="promo-hint">${I.gift}<span>Completaste tu tarjeta de sellos. Para recibir tu premio (${esc(L.reward)}) elige <b>Al recoger</b>.</span></div>` : `<div class="reward">${I.gift}<span><b>¡Premio de cliente frecuente!</b> Este pedido lleva: ${esc(L.reward)}.</span></div>`) : ""}
         ${card && promosOf(R).length ? `<p class="hint">Las promociones aplican en pedidos que pagas al recoger.</p>` : ""}
-        <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
+        <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}${dl ? `<div class="sub"><span>Comida</span><span class="mono">${money(sub)}</span></div><div class="sub"><span>Envío${q && !q.far ? ` (${q.mi.toFixed(1)} mi)` : ""}</span><span class="mono">${q && !q.far ? money(fee) : "—"}</span></div>${tip ? `<div class="sub"><span>Propina</span><span class="mono">${money(tip)}</span></div>` : ""}` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
-        <button class="pay" data-act="pay" ${closed || S.busy ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
+        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
         ${S.user ? `<p class="hint" style="text-align:center">Pides como ${esc(S.user.email || "")}. Lo verás en Mis pedidos.</p>` : `<p class="hint" style="text-align:center"><a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para guardar tus pedidos. También puedes pedir sin cuenta.</p>`}
         <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : "Pagas en efectivo o tarjeta al recoger."}</p>
       </div>`;
+  }
+  function dlvStatusHTML(o) {
+    const D = o.delivery, ds = D.status, live = S.mineDlv;
+    const steps = [["Pedido recibido", "El negocio ya lo tiene"], ["Preparando tu comida", o.status === "ready" || o.status === "done" ? "Listo en la cocina" : "En la cocina"],
+      ["Repartidor asignado", D.driverName ? `${D.driverName}${D.driverCar ? " · " + D.driverCar : ""}${D.driverPlate ? " · " + D.driverPlate : ""}` : "Buscando un repartidor cerca"], ["En camino a tu casa", "Ya recogió tu pedido"], ["Entregado", "¡Buen provecho!"]];
+    const idx = ds === "delivered" ? 4 : ds === "picked" ? 3 : ds === "assigned" ? (o.status === "prep" || o.status === "ready" || o.status === "done" ? 2 : 2) : o.status === "prep" || o.status === "ready" ? 1 : 0;
+    const title = ds === "delivered" ? "¡Pedido entregado!" : ds === "picked" ? "¡Va en camino!" : ds === "assigned" ? `${esc(D.driverName || "Tu repartidor")} va por tu pedido` : "Gracias, " + esc(o.who);
+    setTimeout(drawDlvMap, 30);
+    return `<div class="status">
+      <h2>${title}</h2>
+      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>A domicilio · ${esc(S.R.name)}</p><span class="paychip paid">Pagado con tarjeta</span></div>
+      ${ds === "delivered" ? "" : notifyHTML({ ...o, status: "prep" }).replace(/cuando esté listo/g, "cuando vaya en camino y cuando llegue")}
+      ${(ds === "assigned" || ds === "picked") ? `<div class="dlv-map" id="dlvMap"></div>${live && live.driverLoc ? `<p class="hint">Ubicación del repartidor ${ago(live.driverLoc.t || Date.now())}.</p>` : `<p class="hint">Verás al repartidor en el mapa cuando comparta su ubicación.</p>`}` : ""}
+      <ol class="steps">${steps.map((x, i) => { const done = i < idx || (i === 4 && idx === 4); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${x[0]}</b><small>${esc(x[1])}</small></div></li>`; }).join("")}</ol>
+      <div class="onote"><b>Entrega en:</b> ${esc(D.address)}${D.unit ? " · " + esc(D.unit) : ""}</div>
+      <div class="points"><span>Comida ${money(o.food || 0)} · envío ${money(D.fee)}${D.tip ? ` · propina ${money(D.tip)}` : ""}</span><strong class="mono">${money(o.total)}</strong></div>
+      <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
+  }
+  let dlvMapObj = null, dlvMarks = {};
+  function drawDlvMap() {
+    const el = $("#dlvMap"), o = S.mine, live = S.mineDlv; if (!el || !o || !o.delivery || !hasL()) return;
+    if (!dlvMapObj || dlvMapObj._container !== el) { dlvMapObj = makeMap(el, { center: [o.delivery.lat, o.delivery.lng], zoomLevel: 13 }); dlvMarks = {}; if (!dlvMapObj) return; }
+    const home = [o.delivery.lat, o.delivery.lng];
+    if (!dlvMarks.home) dlvMarks.home = L.marker(home, { icon: L.divIcon({ className: "", html: `<div class="pin home"><span>🏠</span></div>`, iconSize: [36, 44], iconAnchor: [18, 44] }) }).addTo(dlvMapObj);
+    const dl = live && live.driverLoc;
+    if (dl) {
+      const p = [dl.lat, dl.lng];
+      if (dlvMarks.car) dlvMarks.car.setLatLng(p); else dlvMarks.car = L.marker(p, { icon: L.divIcon({ className: "", html: `<div class="pin car"><span>🚗</span></div>`, iconSize: [36, 44], iconAnchor: [18, 44] }) }).addTo(dlvMapObj);
+      try { dlvMapObj.fitBounds([home, p], { padding: [40, 40], maxZoom: 15 }); } catch (e) {}
+    }
   }
   function statusHTML() {
     const o = S.mine;
@@ -623,6 +727,7 @@
     if (st === "pending" || st === "cancelled") return `<div class="status"><h2>${st === "pending" ? "Confirmando tu pago…" : "Pago no completado"}</h2>
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${st === "pending" ? "En cuanto se confirme el pago, tu pedido entra a la cocina." : "Este pedido no se cobró y no llegó a la cocina."}</p></div>
       <button class="ghost" data-act="neworder">${st === "pending" ? "Volver al menú" : "Hacer otro pedido"}</button></div>`;
+    if (o.delivery) return dlvStatusHTML(o);
     const idx = { new: 0, prep: 1, ready: 2, done: 3 }[st] ?? 0;
     const steps = [["Pedido recibido", "El negocio ya lo tiene en su pantalla"], ["En preparación", "Lo están preparando"], ["Listo para recoger", "Pasa con tu número"]];
     return `<div class="status">
@@ -641,13 +746,22 @@
     if (!nm) { S.payErr = "Escribe tu nombre para que te llamen cuando esté listo."; paint(renderRest); const i = $("#nameInput"); if (i) i.focus(); return; }
     S.name = nm; ls.set("onroute-name", nm); S.payErr = "";
     const rid = S.rid;
-    if (cardOn() && S.payMode === "card") {
+    if (isDlv()) {
+      const D = S.dlv || {}, q = dlvQuote();
+      if (!q) { S.payErr = "Escribe tu dirección de entrega y elígela de la lista."; paint(renderRest); return; }
+      if (q.far) { S.payErr = "Tu dirección está fuera del área de entrega de este negocio."; paint(renderRest); return; }
+      if (String(D.phone || (S.profile && S.profile.phone) || "").replace(/\D/g, "").length < 7) { S.payErr = "Escribe tu teléfono para que el repartidor te pueda llamar."; paint(renderRest); return; }
+      if (!D.phone && S.profile && S.profile.phone) S.dlv.phone = S.profile.phone;
+      ls.set("onroute-dlv", S.dlv);
+    }
+    if (isDlv() || (cardOn() && S.payMode === "card")) {
       S.busy = true; paint(renderRest);
       try {
         const headers = { "Content-Type": "application/json" };
         if (S.user) { try { headers.Authorization = "Bearer " + (await S.user.getIdToken()); } catch (e) {} }
         const r = await fetch(window.ONROUTE_API + "/createCheckout", { method: "POST", headers,
-          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, note: String(S.note || "").trim().slice(0, 200), cart: S.cart, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })) }) });
+          body: JSON.stringify({ rid, name: nm, pickup: S.pickup, note: String(S.note || "").trim().slice(0, 200), cart: S.cart, items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })),
+            ...(isDlv() ? { delivery: { ...S.dlv }, tip: Number(S.tip) || 0 } : {}) }) });
         const j = await r.json().catch(() => ({}));
         if (!r.ok || !j.url) throw new Error(j.error || "No se pudo iniciar el pago.");
         ls.set("onroute-pending", { cart: S.cart, name: nm, orderId: j.orderId, rid, at: Date.now() });
@@ -687,7 +801,8 @@
       S.user = u; S.authReady = true; S.isAdmin = false; S.my = null; S.myReady = false; S.profile = null; S.profileReady = false;
       S.hist = []; S.histReady = false; S.users = []; S.usersReady = false; S.all = []; S.allReady = false; S.stats = null;
       S.drv = null; S.drvReady = false; S.drvForm = null; S.drvLic = ""; S.drivers = []; S.driversReady = false;
-      [drvUnsub, driversUnsub].forEach(f => { try { f && f(); } catch (e) {} }); drvUnsub = driversUnsub = null;
+      [drvUnsub, driversUnsub, availUnsub, curUnsub, mineDUnsub].forEach(f => { try { f && f(); } catch (e) {} }); drvUnsub = driversUnsub = availUnsub = curUnsub = mineDUnsub = null;
+      S.avail = []; S.cur = null; S.curId = null; S.curInfo = null; S.myDlv = []; if (drvWatch !== null) drvGps(false);
       [myUnsub, ordUnsub, myMenuUnsub, allUnsub, profUnsub, histUnsub, usersUnsub].forEach(f => { try { f && f(); } catch (e) {} });
       myUnsub = ordUnsub = myMenuUnsub = allUnsub = profUnsub = histUnsub = usersUnsub = null;
       stopGps(true);
@@ -710,7 +825,7 @@
       afterAuth();
     });
   }
-  let drvUnsub = null, driversUnsub = null;
+  let drvUnsub = null, driversUnsub = null, admDlvUnsub = null;
   function watchDrivers() {
     if (driversUnsub) return;
     driversUnsub = db.collection("drivers").onSnapshot(snap => { S.drivers = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.driversReady = true; if (S.route.name === "admin") paint(renderAdmin); }, e => { console.warn("OnRoute: repartidores", e); S.driversReady = true; });
@@ -842,22 +957,100 @@
         ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Corregir mis datos</button></div>`}`;
     } else {
       const I2 = S.drvStripeInfo, ready = D.stripeReady || (I2 && I2.ready), days = licDays(D.licenseExpires);
+      setTimeout(drvWatchData, 0);
       const lic = days < 0 ? `<div class="sg-err"><b>Tu licencia venció</b><span>Actualiza tu licencia para seguir repartiendo.</span></div>` : days <= 30 ? `<div class="banner info"><span><b>Tu licencia vence en ${days} día${days === 1 ? "" : "s"}.</b> Actualízala cuando la renueves.</span></div>` : "";
       const mine = I2 && I2.missing ? I2.missing.filter(m => m.who === "user") : [];
       const E = S.drvStripeErr;
-      html = `${lic}
-        <div class="kcard"><h4>Cobros</h4>
+      const cobros = `<div class="kcard"><h4>Cobros</h4>
           ${ready ? `<div class="sg-ok">✓ Banco conectado · listo para recibir pagos</div><p class="hint">Tus ganancias se depositan con Stripe. Puedes ver tus pagos y retirar al instante desde tu panel de Stripe Express.</p>`
           : `<p class="hint">Conecta tu cuenta de banco con Stripe para recibir lo que ganes. Stripe te pide tu nombre, fecha de nacimiento, los últimos 4 del SSN y tu banco; también te manda tu formulario 1099 de impuestos.</p>
              ${mine.length ? `<div class="sg-box"><b>Stripe todavía necesita:</b><ul class="sg-need">${mine.map(m => { const n = sgNeed(m); return `<li><b>${esc(n.title)}</b>${n.tip ? `<span>${esc(n.tip)}</span>` : ""}</li>`; }).join("")}</ul></div>` : ""}
              ${E ? `<div class="sg-err" role="alert"><b>${esc(E.title)}</b><span>${esc(E.what)}</span>${E.detail ? `<details><summary>Detalle técnico</summary><code>${esc(E.detail)}</code></details>` : ""}</div>` : ""}
              <div class="sg-btns"><button class="btn" data-act="drvstripe" ${S.drvStripeBusy ? "disabled" : ""}>${S.drvStripeBusy ? "Un momento…" : D.stripeAccount ? "Continuar en Stripe" : "Conectar mi banco"}</button>${D.stripeAccount ? `<button class="btn sec sm" data-act="drvstripechk" ${S.drvStripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}</div>`}
-        </div>
-        <div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Las entregas a domicilio se activan muy pronto en OnRoute. Cuando estén listas, aquí te conectas para ver los pedidos cerca de ti, aceptarlos y ganar por cada entrega.</p></div>
+        </div>`;
+      html = `${lic}${ready ? drvOpsHTML(D) + cobros : cobros + `<div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Conecta tu banco (arriba) y aquí podrás conectarte para recibir entregas cerca de ti.</p></div>`}
         ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Actualizar mis datos o licencia</button></div>`}`;
     }
     html += `<div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-pick="cliente">${I.food} Pedir comida</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>`;
     if (v.dataset.h !== html) { v.dataset.h = html; v.innerHTML = wrap(html); if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {} } } }
+  }
+  // ---- Operación del repartidor: en línea, entregas disponibles, entrega actual y ganancias
+  let drvWatch = null, drvLastSent = 0, availUnsub = null, curUnsub = null, mineDUnsub = null, availSeen = null;
+  function drvWatchData() {
+    const D = S.drv; if (!D || D.status !== "active" || !S.user) return;
+    if (!mineDUnsub) mineDUnsub = db.collection("deliveries").where("driverUid", "==", S.user.uid).onSnapshot(sn => { S.myDlv = sn.docs.map(x => ({ id: x.id, ...x.data() })); paint(renderDriver); }, e => console.warn("OnRoute: mis entregas", e));
+    if (D.online && !availUnsub) availUnsub = db.collection("deliveries").where("status", "==", "searching").onSnapshot(sn => {
+      S.avail = sn.docs.map(x => ({ id: x.id, ...x.data() }));
+      const ids = new Set(S.avail.map(x => x.id));
+      if (availSeen && S.avail.some(x => !availSeen.has(x.id)) && !D.current) { chime(); try { navigator.vibrate && navigator.vibrate([200, 100, 200]); } catch (e) {} toast("¡Nueva entrega disponible cerca!"); }
+      availSeen = ids; paint(renderDriver);
+    }, e => console.warn("OnRoute: entregas disponibles", e));
+    if (!D.online && availUnsub) { availUnsub(); availUnsub = null; availSeen = null; S.avail = []; }
+    const cur = D.current || null;
+    if (cur !== S.curId) {
+      if (curUnsub) { curUnsub(); curUnsub = null; } S.curId = cur; S.cur = null; S.curInfo = null;
+      if (cur) {
+        curUnsub = db.doc(`deliveries/${cur}`).onSnapshot(x => { S.cur = x.exists ? { id: x.id, ...x.data() } : null; paint(renderDriver); }, () => {});
+        db.doc(`deliveries/${cur}/private/info`).get().then(x => { S.curInfo = x.exists ? x.data() : null; paint(renderDriver); }).catch(e => console.warn("OnRoute: datos de entrega", e));
+      }
+    }
+    if ((D.online || cur) && drvWatch === null) drvGps(true);
+    if (!D.online && !cur && drvWatch !== null) drvGps(false);
+  }
+  function drvGps(on) {
+    if (!on) { if (drvWatch !== null) navigator.geolocation.clearWatch(drvWatch); drvWatch = null; return; }
+    if (!navigator.geolocation) { toast("Este celular no tiene GPS disponible."); return; }
+    drvWatch = navigator.geolocation.watchPosition(p => {
+      const loc = { lat: p.coords.latitude, lng: p.coords.longitude, t: Date.now() }; S.drvPos = loc;
+      if (Date.now() - drvLastSent < 15000) return; drvLastSent = Date.now();
+      db.doc(`drivers/${S.user.uid}`).update({ loc, updatedAt: Date.now() }).catch(() => {});
+      if (S.cur && ["assigned", "picked"].includes(S.cur.status)) db.doc(`deliveries/${S.cur.id}`).update({ driverLoc: loc }).catch(() => {});
+    }, e => { console.warn("OnRoute: GPS repartidor", e); S.drvGpsErr = "Activa la ubicación de tu celular para recibir entregas."; paint(renderDriver); }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
+  }
+  async function drvSetOnline(on) {
+    try { await db.doc(`drivers/${S.user.uid}`).update({ online: on, updatedAt: Date.now() }); toast(on ? "Estás en línea. Te avisamos cuando haya entregas." : "Te desconectaste."); }
+    catch (e) { console.error(e); toast("No se pudo cambiar. Revisa tu conexión."); }
+  }
+  async function drvAct(id, action) {
+    if (action === "picked" && !confirm("¿Ya tienes el pedido en tus manos?")) return;
+    if (action === "delivered" && !confirm("¿Entregaste el pedido al cliente?")) return;
+    if (action === "release" && !confirm("¿Soltar esta entrega para que la tome otro repartidor?")) return;
+    S.drvActBusy = id; paint(renderDriver);
+    try { const j = await payApi("deliveryAction", { id, action }); if (action === "accept") toast("¡Entrega aceptada! Ve al negocio."); if (action === "delivered") toast(j.payout === "paid" ? "¡Entregado! Tu pago ya va en camino a tu cuenta." : "¡Entregado! Tu pago se procesa en las próximas horas."); }
+    catch (e) { toast(String(e.message || "No se pudo.").split(" Detalle:")[0]); }
+    S.drvActBusy = null; paint(renderDriver);
+  }
+  const mapsLink = (lat, lng) => `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+  function drvOpsHTML(D) {
+    const busy = S.drvActBusy, me = S.drvPos || D.loc, C = S.cur, Inf = S.curInfo || {};
+    const kitchenTxt = k => ({ new: "Pedido recibido", prep: "Lo están preparando", ready: "¡Listo para recoger!", done: "Listo" })[k] || "";
+    let cur = "";
+    if (D.current && C && ["assigned", "picked"].includes(C.status)) {
+      const P = C.pickup || {};
+      cur = C.status === "assigned" ? `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 1 de 2 · Recoger</span><b class="mono">${money(C.driverPay)}</b></div>
+          <h3>${esc(C.rname)}</h3><p class="hint">${esc(P.address || "")}${P.phone ? " · " + esc(P.phone) : ""}</p>
+          <div class="dkit ${C.kitchen === "ready" ? "ok" : ""}">${C.kitchen === "ready" ? "✓ " : "⏳ "}${kitchenTxt(C.kitchen)} · Pedido <b class="mono">#${esc(C.num)}</b> · ${C.items || ""} producto(s)</div>
+          <div class="sg-btns"><a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(P.lat, P.lng)}">${I.pin} Cómo llegar</a>${P.phone ? `<a class="btn sec" href="tel:${esc(P.phone.replace(/[^\d+]/g, ""))}">Llamar al negocio</a>` : ""}</div>
+          <button class="btn green big" data-dact="picked" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Ya recogí el pedido #${esc(C.num)}</button>
+          <button class="linkbtn" data-dact="release" data-id="${esc(C.id)}">No puedo hacerla · soltar entrega</button></div>`
+        : `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 2 de 2 · Entregar</span><b class="mono">${money(C.driverPay)}</b></div>
+          <h3>${esc(Inf.name || "Cliente")}</h3><p><b>${esc(Inf.address || "")}</b>${Inf.unit ? `<br>${esc(Inf.unit)}` : ""}</p>
+          ${Inf.notes ? `<div class="onote"><b>Indicaciones:</b> ${esc(Inf.notes)}</div>` : ""}
+          <div class="sg-btns">${Inf.lat ? `<a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(Inf.lat, Inf.lng)}">${I.pin} Cómo llegar</a>` : ""}${Inf.phone ? `<a class="btn sec" href="tel:${esc(String(Inf.phone).replace(/[^\d+]/g, ""))}">Llamar al cliente</a>` : ""}</div>
+          <button class="btn green big" data-dact="delivered" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Entregué el pedido</button></div>`;
+    }
+    const list = (S.avail || []).map(x => ({ ...x, away: me && x.pickup ? miles(me, x.pickup) * DLV.roadFactor : null })).sort((a, b) => (a.away ?? 99) - (b.away ?? 99));
+    const avail = D.current ? "" : !D.online ? "" : `<div class="kcard"><h4>Entregas disponibles</h4>${!list.length ? `<div class="empty">Por ahora no hay entregas. Te avisamos con un sonido cuando llegue una.</div>`
+      : list.map(x => `<div class="dav"><div style="min-width:0"><b>${esc(x.rname)}</b><span>${x.away != null ? `Recoger a ${fmtMi(x.away)}` : "Recoger"} · entregar ${x.miles ? x.miles.toFixed(1) + " mi" : ""}${x.drop && x.drop.area ? " · " + esc(x.drop.area) : ""}</span><span>${kitchenTxt(x.kitchen)} · ${x.items || ""} producto(s)${x.tip ? ` · incluye ${money(x.tip)} de propina` : ""}</span></div>
+          <div class="dav-r"><b class="mono">${money(x.driverPay)}</b><button class="btn green sm" data-dact="accept" data-id="${esc(x.id)}" ${busy ? "disabled" : ""}>Aceptar</button></div></div>`).join("")}</div>`;
+    const mine = S.myDlv || [], t0 = todayStart(), wk = t0 - 6 * 86400000;
+    const done = mine.filter(x => x.status === "delivered"), today = done.filter(x => (x.deliveredAt || 0) >= t0), week = done.filter(x => (x.deliveredAt || 0) >= wk);
+    const sum = a => a.reduce((n, x) => n + (Number(x.driverPay) || 0), 0), pend = done.filter(x => x.payout === "pending");
+    const earn = `<div class="kcard"><h4>Tus ganancias</h4><div class="tiles three"><div class="tile t-green"><b class="mono">${money(sum(today))}</b><small>Hoy · ${today.length} entrega${today.length === 1 ? "" : "s"}</small></div><div class="tile t-blue"><b class="mono">${money(sum(week))}</b><small>Últimos 7 días</small></div><div class="tile t-purple"><b class="mono">${money(sum(pend))}</b><small>Pago en proceso</small></div></div>
+      ${done.length ? `<div class="dhist">${done.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)).slice(0, 8).map(x => `<div><span>${esc(x.rname)} · #${esc(x.num)} · ${ago(x.deliveredAt || 0)}</span><b class="mono">${money(x.driverPay)}</b><em>${x.payout === "paid" ? "Pagado" : "En proceso"}</em></div>`).join("")}</div>` : `<p class="hint">Aquí verás lo que ganas por cada entrega. Los pagos llegan a tu banco con Stripe; puedes retirar al instante desde Stripe Express.</p>`}</div>`;
+    const online = `<div class="kcard donline ${D.online ? "on" : ""}"><div><b>${D.online ? "Estás en línea" : "Estás desconectado"}</b><span>${D.online ? "Recibes avisos de entregas cerca de ti. Mantén la app abierta." : "Conéctate cuando quieras repartir."}</span>${S.drvGpsErr ? `<span class="err">${esc(S.drvGpsErr)}</span>` : ""}</div>
+      <input type="checkbox" class="tgl" id="drvOnline" aria-label="En línea" ${D.online ? "checked" : ""} ${D.current ? "disabled" : ""}></div>`;
+    return `${online}${cur}${avail}${earn}`;
   }
   function drvSummaryHTML(D) {
     const V = D.vehicle || {}, days = licDays(D.licenseExpires);
@@ -951,16 +1144,16 @@
     const stop = () => { if (!document.hidden) { flashTitle(false); document.removeEventListener("visibilitychange", stop); window.removeEventListener("focus", stop); } };
     document.addEventListener("visibilitychange", stop); window.addEventListener("focus", stop);
   }
-  async function readyAlert(o) {
+  async function readyAlert(o, title, body) {
     chime();
     try { navigator.vibrate && navigator.vibrate([300, 150, 300, 150, 700]); } catch (e) {}
     if (document.hidden) flashTitle(true);
-    toast(`¡Tu pedido #${o.num} está listo! Pasa a recogerlo.`);
+    toast(body || `¡Tu pedido #${o.num} está listo! Pasa a recogerlo.`);
     if (canNotify() && Notification.permission === "granted") {
       try {
         const reg = await navigator.serviceWorker.ready;
-        await reg.showNotification("¡Tu pedido está listo! 🌮", {
-          body: `Pedido #${o.num} en ${S.R ? S.R.name : "el negocio"}. Pasa a recogerlo con tu número.`,
+        await reg.showNotification(title || "¡Tu pedido está listo! 🌮", {
+          body: body || `Pedido #${o.num} en ${S.R ? S.R.name : "el negocio"}. Pasa a recogerlo con tu número.`,
           icon: "icon-192.png", badge: "icon-192.png", tag: `onroute-ready-${o.id}`, renotify: true, requireInteraction: true,
           vibrate: [300, 150, 300, 150, 700], data: { url: `${BASE}?r=${S.rid}` },
         });
@@ -1162,8 +1355,9 @@
         ${o.promo ? `<div class="onote promo"><b>Promo:</b> ${esc(o.promo.title || "")}${o.promo.code ? " · código " + esc(o.promo.code) : ""} · −${money(o.promo.off)}</div>` : ""}
         ${o.reward ? `<div class="onote prize"><b>Premio:</b> ${esc(o.reward)} · ${rewardCheck(o)}</div>` : ""}
         <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup === "30" ? " · llega en 30 min" : ""}</div>
+        ${o.delivery ? `<div class="onote dlv">${I.car} <b>A domicilio</b> · ${o.delivery.driverName ? `Repartidor: ${esc(o.delivery.driverName)}${o.delivery.driverCar ? " · " + esc(o.delivery.driverCar) : ""}${o.delivery.driverPlate ? " · " + esc(o.delivery.driverPlate) : ""}${o.delivery.status === "picked" ? " · ya lo recogió" : " · en camino al negocio"}` : "Buscando repartidor…"}</div>` : ""}
         <span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Cobrar al entregar"}</span>${visitsOf(o) > 1 ? `<span class="paychip freq">Cliente frecuente · visita ${visitsOf(o)}</span>` : ""}
-        <button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button></div>`).join("")
+        ${o.delivery && k === "ready" ? `<button class="o-btn" disabled>Esperando al repartidor</button>` : `<button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button>`}</div>`).join("")
       : `<div class="empty">${k === "new" ? (S.ordersReady ? "Sin pedidos nuevos." : "Cargando…") : "Sin pedidos"}</div>`}</div>`; }).join("");
   }
   function renderChart(today) {
@@ -1180,7 +1374,7 @@
   async function advance(id) {
     const o = S.orders.find(x => x.id === id); if (!o) return;
     const next = { new: "prep", prep: "ready", ready: "done" }[o.status]; if (!next) return;
-    try { await db.doc(`restaurants/${S.my.id}/orders/${id}`).update({ status: next }); }
+    try { await db.doc(`restaurants/${S.my.id}/orders/${id}`).update({ status: next }); if (o.delivery) db.doc(`deliveries/${id}`).update({ kitchen: next }).catch(e => console.warn("OnRoute: cocina→entrega", e)); }
     catch (e) { console.error("OnRoute: mover pedido", e); toast("No se pudo actualizar el pedido. Revisa la conexión."); }
   }
 
@@ -1602,7 +1796,7 @@ Reglas:
   }
 
   // ---------- Perfil, ubicación y enlace
-  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)) }; S.pfDirty = false; } }
+  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)), dlvOn: !!(R.delivery && R.delivery.on), dlvRadius: (R.delivery && R.delivery.radius) || 5 }; S.pfDirty = false; } }
   function renderProf() {
     const el = $("#pProf"), R = S.my;
     pfEnsure();
@@ -1637,6 +1831,11 @@ Reglas:
             ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Pagos con tarjeta</h4>
               <p class="hint">Tus clientes podrán pagar con tarjeta al pedir. El dinero llega directo a tu cuenta de banco; Stripe te cobra su comisión por cada pago y OnRoute no cobra nada.</p>
               <div id="pfStripe" class="sg"></div></div>` : ""}
+            ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Entrega a domicilio</h4>
+              <p class="hint">Repartidores de OnRoute llevan tus pedidos. El cliente paga el envío según las millas (desde ${money(DLV.minFee)}) y la propina; tú recibes el pago de la comida igual que siempre. Necesitas tener conectados los pagos con tarjeta.</p>
+              <label class="dlv-sw"><input type="checkbox" id="pfDlvOn"> <span>Ofrecer entrega a domicilio</span></label>
+              <div class="field"><label for="pfDlvR">Hasta qué distancia entregas</label><select id="pfDlvR">${[2, 3, 5, 8].map(n => `<option value="${n}">${n} millas</option>`).join("")}</select></div>
+              <p class="hint" id="pfDlvNote"></p></div>` : ""}
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
@@ -1662,6 +1861,9 @@ Reglas:
         ${d.closed ? `<span class="hint">Cerrado</span>` : `<input type="time" data-ht="${i}" data-hk="open" value="${esc(d.open)}" aria-label="${DAYS[i]} abre"><span>a</span><input type="time" data-ht="${i}" data-hk="close" value="${esc(d.close)}" aria-label="${DAYS[i]} cierra">`}</div>`; }).join("");
     }
     $("#pfLogo").innerHTML = logoHTML(R);
+    const dOn = $("#pfDlvOn"), dR = $("#pfDlvR"), dN = $("#pfDlvNote");
+    if (dOn) { dOn.checked = !!P.dlvOn; dOn.disabled = !R.stripeReady && !P.dlvOn; dR.value = String(P.dlvRadius); dR.disabled = !P.dlvOn;
+      dN.textContent = !R.stripeReady ? "Primero conecta tus pagos con tarjeta (arriba)." : P.dlvOn ? "Toca Guardar perfil para aplicar los cambios." : ""; if (!S.pfDirty) dN.textContent = !R.stripeReady ? dN.textContent : (R.delivery && R.delivery.on ? "Activa: tus clientes ven la opción A domicilio." : ""); }
     const sp = $("#pfStripe");
     if (sp) { const h = stripeGuideHTML(R); if (sp.dataset.h !== h) { const open = $$("details[data-sg]", sp).filter(d => d.open).map(d => d.dataset.sg); sp.innerHTML = h; sp.dataset.h = h; open.forEach(k => { const d = sp.querySelector(`details[data-sg="${k}"]`); if (d) d.open = true; }); } }
     if (sp && R.stripeAccount && !R.stripeReady && !S.stripeInfo && !S.stripeBusy && !S.stripeAuto) { S.stripeAuto = true; setTimeout(() => stripeStatus(true), 0); }
@@ -1794,6 +1996,7 @@ Reglas:
     const upd = { name: P.name.trim().slice(0, 60), kind: P.kind, cuisine: P.cuisine.trim().slice(0, 60), description: P.description.trim().slice(0, 300), phone: P.phone.trim().slice(0, 30), address: P.address.trim().slice(0, 120), updatedAt: Date.now() };
     const bad = P.hours.findIndex(d => !d.closed && (!okT(d.open) || !okT(d.close) || d.open === d.close));
     if (bad >= 0) { S.pfMsg = `Falta revisar el horario del ${DAYS[bad].toLowerCase()}.`; paint(renderProf); return; }
+    upd.delivery = { on: !!P.dlvOn, radius: Math.min(8, Math.max(1, Number(P.dlvRadius) || 5)) };
     upd.hours = { tz: TZ, days: P.hours.map(d => d.closed ? { closed: true } : { open: d.open, close: d.close }) };
     if (typeof P.lat === "number") { upd.lat = P.lat; upd.lng = P.lng; }
     try { await db.doc(`restaurants/${S.my.id}`).update(upd); S.pfDirty = false; S.pfMsg = "Perfil guardado."; S.pf = null; paint(renderPanel); }
@@ -1920,7 +2123,7 @@ Reglas:
     if (!S.authReady || (S.user && !S.profileReady)) { v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
     if (!S.user) { S.authRole = S.authRole || "business"; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.isAdmin) { v.innerHTML = `<div class="panel">${head}<div class="p-auth"><div class="auth"><h3>Sin acceso</h3><p>Esta sección es solo para el administrador de OnRoute.</p><a class="btn sec" href="./" data-nav="home">Volver al inicio</a></div></div></div>`; return; }
-    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["drv", "Repartidores", I.car], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
+    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["drv", "Repartidores", I.car], ["dlv", "Entregas", I.pin], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
     if (v.dataset.built !== "1") {
       v.dataset.built = "1";
       v.innerHTML = `<div class="panel">${head}<div class="pbody"><div class="kpanel scroll narrow" id="aBody"></div>
@@ -1966,6 +2169,16 @@ Reglas:
             ${lic ? `<img class="lic-img" src="${esc(lic)}" alt="Licencia de ${esc(d.name || "")}">` : ""}</div>
           <div class="acts">${statusChip(d.status)}<button class="btn sm sec" data-act="licview" data-id="${esc(d.id)}">${lic ? "Ocultar licencia" : "Ver licencia"}</button>
             ${d.status !== "active" ? `<button class="btn sm green" data-admdrv="active" data-id="${esc(d.id)}" ${days < 0 ? "disabled" : ""}>Aprobar</button>` : `<button class="btn sm sec" data-admdrv="suspended" data-id="${esc(d.id)}">Suspender</button>`}</div></div>`; }).join("")}</div>`;
+    } else if (S.admTab === "dlv") {
+      if (!admDlvUnsub) admDlvUnsub = db.collection("deliveries").orderBy("createdAt", "desc").limit(60).onSnapshot(sn => { S.admDlv = sn.docs.map(x => ({ id: x.id, ...x.data() })); paint(renderAdmin); }, e => { console.warn(e); S.admDlv = []; paint(renderAdmin); });
+      const L2 = S.admDlv, lab = { searching: "Buscando repartidor", assigned: "Repartidor en camino al negocio", picked: "En camino al cliente", delivered: "Entregado" };
+      const t0 = todayStart(), td = (L2 || []).filter(x => x.status === "delivered" && (x.deliveredAt || 0) >= t0);
+      el.innerHTML = `<div class="ptitle"><h3>Entregas a domicilio</h3><p>Todas las entregas en vivo. OnRoute se queda con el ${Math.round((1 - DLV.driverShare) * 100)}% del envío; el repartidor recibe el resto más la propina.</p></div>
+        <div class="tiles three"><div class="tile t-blue"><b class="mono">${(L2 || []).filter(x => x.status === "searching").length}</b><small>Buscando repartidor</small></div><div class="tile t-purple"><b class="mono">${(L2 || []).filter(x => ["assigned", "picked"].includes(x.status)).length}</b><small>En curso</small></div><div class="tile t-gold"><b class="mono">${money(td.reduce((n, x) => n + (x.fee || 0) * (1 - DLV.driverShare), 0))}</b><small>Ganancia de OnRoute hoy</small></div></div>
+        <div class="kcard">${!L2 ? `<div class="empty">Cargando…</div>` : !L2.length ? `<div class="empty">Todavía no hay entregas.</div>` : L2.map(x => `<div class="adm-row drow"><span class="rlogo">${I.car}</span>
+          <div style="min-width:0"><b>${esc(x.rname)} · #${esc(x.num)}</b><span>${esc(lab[x.status] || x.status)}${x.driverName ? " · " + esc(x.driverName) : ""} · ${x.miles ? x.miles.toFixed(1) + " mi" : ""} · ${ago(x.createdAt || 0)}</span>
+            <span>Envío ${money(x.fee || 0)} · propina ${money(x.tip || 0)} · al repartidor ${money(x.driverPay || 0)}${x.status === "delivered" ? ` · pago: ${x.payout === "paid" ? "hecho" : "pendiente"}${x.payoutErr ? " (" + esc(x.payoutErr) + ")" : ""}` : ""}</span></div>
+          <div class="acts">${x.status === "searching" && Date.now() - (x.createdAt || 0) > 20 * 60000 ? `<span class="chip">Más de 20 min sin repartidor</span>` : ""}</div></div>`).join("")}</div>`;
     } else if (S.admTab === "cli") {
       const list = S.users.slice().sort((a, b) => num(b.createdAt) - num(a.createdAt));
       el.innerHTML = `<div class="ptitle"><h3>Usuarios registrados</h3><p>${list.filter(u => u.role !== "business").length} clientes · ${list.filter(u => u.role === "business").length} negocios</p></div>
@@ -2022,6 +2235,10 @@ Reglas:
     if (d.act === "neworder") { S.view = "menu"; S.myOrder = null; S.mine = null; if (mineUnsub) { mineUnsub(); mineUnsub = null; } ss.del(`onroute-my-${S.rid}`); paint(renderRest); return; }
     if (d.act === "repeat") { const L0 = getLast(S.rid); if (!L0) return; S.cart = { ...L0.cart }; if (L0.name && !S.name) S.name = L0.name; S.view = "cart"; paint(renderRest); return; }
     if (d.pickup) { S.pickup = d.pickup; paint(renderRest); return; }
+    if (d.recv) { S.recv = d.recv; S.payErr = ""; if (!S.dlv) S.dlv = ls.get("onroute-dlv", null) || {}; paint(renderRest); return; }
+    if (d.tip !== undefined && t.closest(".tips")) { S.tip = Number(d.tip) || 0; paint(renderRest); return; }
+    if (d.sug !== undefined) { const x = (S.dlvSug || [])[Number(d.sug)]; if (x) { S.dlv = { ...(S.dlv || {}), address: x.label, lat: x.lat, lng: x.lng }; S.dlvSug = []; S.dlvMsg = ""; ls.set("onroute-dlv", S.dlv); paint(renderRest); } return; }
+    if (d.act === "dlvhere") { dlvHere(); return; }
     if (d.paymode) { S.payMode = d.paymode; paint(renderRest); return; }
     if (d.act === "pay") { unlockAudio(); placeOrder(); return; }
     if (d.act === "notify") { askNotify(); return; }
@@ -2053,6 +2270,7 @@ Reglas:
     if (d.act === "saveprof") { saveProf(); return; }
     if (d.act === "stripego") { stripeGo(); return; }
     if (d.act === "drvsave") { drvSave(); return; }
+    if (d.dact) { drvAct(d.id, d.dact); return; }
     if (d.act === "drvedit") { S.drvEdit = true; S.drvForm = null; S.drvMsg = ""; paint(renderDriver); return; }
     if (d.act === "drvstripe") { drvStripe("start"); return; }
     if (d.act === "drvstripechk") { drvStripe("status"); return; }
@@ -2101,6 +2319,8 @@ Reglas:
     const t = e.target, d = t.dataset;
     if (t.id === "nameInput") { S.name = t.value; return; }
     if (t.id === "noteInput") { S.note = t.value; return; }
+    if (t.id === "dlvAddr") { S.dlv = { ...(S.dlv || {}), address: t.value }; delete S.dlv.lat; delete S.dlv.lng; addrSearch(t.value); return; }
+    if (d.dlv) { S.dlv = { ...(S.dlv || {}), [d.dlv]: t.value }; return; }
     if (t.id === "promoInput") { S.promoInput = t.value; return; }
     if (d.pr) { prEnsure(); const p = S.pr.promos[Number(t.closest(".pcard").dataset.p)]; if (p) p[d.pr] = d.pr === "code" ? cleanCode(t.value) : t.value; t.classList.remove("bad"); prTouch(); return; }
     if (d.loy) { prEnsure(); S.pr.loyalty[d.loy] = t.value; t.classList.remove("bad"); prTouch(); return; }
@@ -2122,6 +2342,7 @@ Reglas:
     const t = e.target, d = t.dataset;
     if (d.vari) { S.vsel[d.vari] = t.checked; paint(renderRest); return; }
     if (d.da) { drvEnsure().attest[d.da] = t.checked; return; }
+    if (t.id === "drvOnline") { drvSetOnline(t.checked); return; }
     if (d.df && t.type === "date") { drvEnsure()[d.df] = t.value; return; }
     if (t.id === "drvLicIn") {
       const f = t.files && t.files[0]; t.value = ""; if (!f) return;
@@ -2129,6 +2350,8 @@ Reglas:
       toDataUrl(f, 1400, 380000).then(u => { S.drvLic = u; S.drvMsg = ""; paint(renderDriver); }).catch(e => { S.drvMsg = photoErr(e); paint(renderDriver); });
       return;
     }
+    if (t.id === "pfDlvOn") { pfEnsure(); S.pf.dlvOn = t.checked; S.pfDirty = true; paint(renderProf); return; }
+    if (t.id === "pfDlvR") { pfEnsure(); S.pf.dlvRadius = Number(t.value) || 5; S.pfDirty = true; paint(renderProf); return; }
     if (d.hopen !== undefined) { pfEnsure(); S.pf.hours[Number(d.hopen)] = t.checked ? { open: "10:00", close: "18:00" } : { closed: true }; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el horario."; paint(renderProf); return; }
     if (d.photo !== undefined && t.type === "file") { onPhoto(t); return; }
     if (t.id === "aiIn") { onMenuPhotos(t); return; }

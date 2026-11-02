@@ -21,7 +21,7 @@ service cloud.firestore {
     // Datos del perfil que el dueño puede cambiar (nunca status ni ownerUid).
     function profileKeys() {
       return ['name','kind','cuisine','description','phone','address','lat','lng','logoUrl',
-              'paused','menuNote','variant','loc','hours','promos','loyalty','updatedAt'];
+              'paused','menuNote','variant','loc','hours','promos','loyalty','delivery','updatedAt'];
     }
     function validProfile(d) {
       return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
@@ -31,6 +31,9 @@ service cloud.firestore {
         && (!('paused' in d) || d.paused is bool)
         && (!('hours' in d) || (d.hours is map && d.hours.days is list && d.hours.days.size() == 7))
         && (!('logoUrl' in d) || (d.logoUrl is string && d.logoUrl.size() <= 60000))
+        // Entrega a domicilio con repartidores de OnRoute (radio en millas, máximo 8).
+        && (!('delivery' in d) || (d.delivery is map && d.delivery.keys().hasOnly(['on','radius'])
+            && d.delivery.on is bool && d.delivery.radius is number && d.delivery.radius > 0 && d.delivery.radius <= 8))
         // Promociones (máximo 10) y tarjeta de cliente frecuente.
         && (!('promos' in d) || (d.promos is list && d.promos.size() <= 10))
         && (!('loyalty' in d) || (d.loyalty is map && d.loyalty.keys().hasOnly(['on','every','reward'])
@@ -113,6 +116,38 @@ service cloud.firestore {
           && request.resource.data.data is string
           && request.resource.data.data.size() < 400000;
         allow delete: if signedIn() && (request.auth.uid == uid || isAdmin());
+      }
+    }
+
+    // ---------- Entregas a domicilio ----------
+    // deliveries/{id}: las crea y cambia el servidor de pagos (aceptar, recoger, entregar, pagar).
+    // Los repartidores activos ven las que buscan repartidor; cada repartidor ve las suyas.
+    function isActiveDriver() {
+      return signedIn()
+        && exists(/databases/$(database)/documents/drivers/$(request.auth.uid))
+        && get(/databases/$(database)/documents/drivers/$(request.auth.uid)).data.status == 'active';
+    }
+    match /deliveries/{id} {
+      allow get: if true;
+      allow list: if isAdmin()
+        || (resource.data.status == 'searching' && isActiveDriver())
+        || (signedIn() && resource.data.driverUid == request.auth.uid);
+      // El repartidor asignado comparte su ubicación; el negocio avisa cómo va la cocina.
+      allow update: if (signedIn() && resource.data.driverUid == request.auth.uid
+          && resource.data.status in ['assigned','picked']
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['driverLoc']))
+        || (isOwnerOf(resource.data.rid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kitchen'])
+          && request.resource.data.kitchen in ['new','prep','ready','done']);
+      allow create, delete: if false;
+
+      // Dirección exacta y teléfono del cliente: solo el repartidor asignado, el negocio y el administrador.
+      match /private/{doc} {
+        allow get: if signedIn() && (
+          get(/databases/$(database)/documents/deliveries/$(id)).data.driverUid == request.auth.uid
+          || isOwnerOf(get(/databases/$(database)/documents/deliveries/$(id)).data.rid)
+          || isAdmin());
+        allow list, write: if false;
       }
     }
 
