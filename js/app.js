@@ -284,13 +284,13 @@
     if (r && /^[a-z0-9-]{3,40}$/i.test(r)) return { name: "rest", rid: r.toLowerCase() };
     if (h === "inicio") return { name: "welcome" };
     if (h === "repartir") return { name: "driver" };
-    if (!S.mode) return { name: "welcome" };
-    if (S.mode === "negocio") return { name: "panel" };
-    if (S.mode === "repartidor") return { name: "driver" };
-    return { name: "home" };
+    if (h === "explorar") return { name: "home" };
+    // Al abrir OnRoute siempre se pregunta cómo quiere entrar (cliente, negocio o repartidor).
+    // Los enlaces directos (menú de un negocio, #panel, #repartir, atajos de la app) no pasan por aquí.
+    return { name: "welcome" };
   }
   function go(name, rid) {
-    const url = name === "welcome" ? `${BASE}#inicio` : name === "driver" ? `${BASE}#repartir` : name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
+    const url = name === "welcome" ? BASE : name === "driver" ? `${BASE}#repartir` : name === "home" ? `${BASE}#explorar` : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
     if (location.href !== url) history.pushState(null, "", url);
     route();
   }
@@ -298,16 +298,16 @@
     const r = parseRoute(), prev = S.route;
     S.route = r;
     document.body.dataset.app = r.name;
-    if (r.name === "panel" && !location.hash) history.replaceState(null, "", BASE + "#panel");
-    if (r.name === "driver" && !location.hash) history.replaceState(null, "", BASE + "#repartir");
+    if (r.name === "welcome" && location.hash === "#inicio") history.replaceState(null, "", BASE + location.search);
+    if (r.name === "home" && S.mode !== "cliente") { S.mode = "cliente"; ls.set(MODE_K, "cliente"); }
     // Quien abre el panel (enlace, QR de negocios, marcador viejo) queda en modo negocio.
     if (r.name === "panel" && S.mode !== "negocio") { S.mode = "negocio"; ls.set(MODE_K, "negocio"); }
     if (r.name === "driver" && S.mode !== "repartidor") { S.mode = "repartidor"; ls.set(MODE_K, "repartidor"); }
     $("#vDriver").hidden = r.name !== "driver";
     if (r.name === "driver") paint(renderDriver);
     $("#vWelcome").hidden = r.name !== "welcome";
-    if (r.name === "welcome") paint(renderWelcome);
-    document.body.dataset.mode = S.mode || "";
+    if (r.name === "welcome") { $("#vWelcome").dataset.built = ""; paint(renderWelcome); }
+    document.body.dataset.umode = S.mode || "";
     $("#vHome").hidden = r.name !== "home";
     $("#vRest").hidden = r.name !== "rest";
     $("#vPanel").hidden = r.name !== "panel";
@@ -378,7 +378,7 @@
           <p class="hint" id="dirLocMsg" hidden></p>
           <div class="dir-toggle"><div class="seg" role="group" aria-label="Vista"><button data-dirmode="list">Lista</button><button data-dirmode="map">Mapa</button></div></div>
           <div class="cards" id="dirCards"></div>
-          <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo y recibe pedidos directos, sin pagar comisión por pedido.</span></div><a class="btn green sm" href="./#panel" data-mode="negocio">Registrar mi negocio</a></div>
+          <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo y recibe pedidos directos, sin pagar comisión por pedido.</span></div><a class="btn green sm" href="./#panel" data-pick="negocio">Registrar mi negocio</a></div>
         </div>
         <div class="dir-map"><div class="map" id="dirMap" aria-label="Mapa de negocios"></div></div>
       </div>`;
@@ -729,7 +729,7 @@
     // Quien ya tenía cuenta y nunca eligió modo: se elige solo según su cuenta.
     if (u && !S.mode && S.profileReady && S.myReady && S.drvReady && roleOf()) {
       const r0 = roleOf(), m = r0 === "business" ? "negocio" : r0 === "driver" ? "repartidor" : "cliente"; S.mode = m; ls.set(MODE_K, m);
-      if (S.route.name === "welcome") { go(m === "negocio" ? "panel" : m === "repartidor" ? "driver" : "home"); return; }
+      if (S.route.name === "welcome") paint(renderWelcome);
     }
     // Después de entrar: cada quien a su vista.
     if (u && S.loginIntent && S.profileReady && S.myReady && roleOf()) {
@@ -746,6 +746,7 @@
     if (n === "admin") paint(renderAdmin);
     if (n === "rest") paint(renderRest);
     if (n === "driver") paint(renderDriver);
+    if (n === "welcome") { $("#vWelcome").dataset.built = ""; paint(renderWelcome); }
   }
   // ---------------------------------------------------------------- repartidores
   const DRV_ATTEST = [
@@ -855,7 +856,7 @@
         <div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Las entregas a domicilio se activan muy pronto en OnRoute. Cuando estén listas, aquí te conectas para ver los pedidos cerca de ti, aceptarlos y ganar por cada entrega.</p></div>
         ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Actualizar mis datos o licencia</button></div>`}`;
     }
-    html += `<div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-mode="cliente">${I.food} Pedir comida</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>`;
+    html += `<div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-pick="cliente">${I.food} Pedir comida</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>`;
     if (v.dataset.h !== html) { v.dataset.h = html; v.innerHTML = wrap(html); if (focusId) { const el = document.getElementById(focusId); if (el) { el.focus(); try { const n = el.value.length; el.setSelectionRange(n, n); } catch (e) {} } } }
   }
   function drvSummaryHTML(D) {
@@ -866,28 +867,31 @@
   }
   function renderWelcome() {
     const v = $("#vWelcome");
-    if (v.dataset.built) return;
-    v.dataset.built = "1";
+    const role = roleOf(), mine = role === "business" ? "negocio" : role === "driver" ? "repartidor" : role === "customer" ? "cliente" : "";
+    const key = [S.user ? S.user.uid : "", mine, S.mode, S.my ? S.my.name : ""].join("|");
+    if (v.dataset.built === key) return;
+    v.dataset.built = key;
+    const tag = m => mine === m ? `<i class="wl-tag">Tu cuenta</i>` : !mine && S.mode === m ? `<i class="wl-tag">Última vez</i>` : "";
     v.innerHTML = `<div class="welcome scroll"><div class="wl-in">
       <h1>¿Cómo quieres usar OnRoute?</h1>
-      <p class="wl-sub">Elige una opción. La próxima vez entras directo.</p>
+      <p class="wl-sub">${S.user ? `Hola${S.profile && S.profile.name ? ", " + esc(S.profile.name.split(" ")[0]) : ""}. Elige a dónde quieres entrar.` : "Elige una opción para entrar."}</p>
       <div class="wl-cards">
-        <button class="wl-card eat" data-mode="cliente"><span class="wl-ic">${I.food}</span><b>Quiero pedir comida</b>
+        <button class="wl-card eat" data-pick="cliente">${tag("cliente")}<span class="wl-ic">${I.food}</span><b>Quiero pedir comida</b>
           <span>Encuentra food trucks y restaurantes cerca de ti y pide directo, sin filas y sin comisiones de apps de delivery.</span><em>Ver negocios cerca →</em></button>
-        <button class="wl-card biz" data-mode="negocio"><span class="wl-ic">${I.store}</span><b>Tengo un negocio</b>
-          <span>Recibe pedidos en tu cocina, maneja tu menú, tus promociones y tus ventas. Para food trucks y restaurantes.</span><em>Entrar a mi negocio →</em></button>
-        <button class="wl-card drv" data-mode="repartidor"><span class="wl-ic">${I.car}</span><b>Quiero repartir</b>
-          <span>Gana dinero entregando pedidos con tu propio auto, en tus horarios. Solo necesitas tu licencia vigente.</span><em>Registrarme como repartidor →</em></button>
+        <button class="wl-card biz" data-pick="negocio">${tag("negocio")}<span class="wl-ic">${I.store}</span><b>${S.my ? esc(S.my.name) : "Tengo un negocio"}</b>
+          <span>Recibe pedidos en tu cocina, maneja tu menú, tus promociones y tus ventas. Para food trucks y restaurantes.</span><em>${S.my ? "Ir a mis pedidos →" : "Entrar a mi negocio →"}</em></button>
+        <button class="wl-card drv" data-pick="repartidor">${tag("repartidor")}<span class="wl-ic">${I.car}</span><b>Quiero repartir</b>
+          <span>Gana dinero entregando pedidos con tu propio auto, en tus horarios. Solo necesitas tu licencia vigente.</span><em>${S.drv ? "Ir a mi panel de repartidor →" : "Registrarme como repartidor →"}</em></button>
       </div>
-      <p class="hint wl-foot">Puedes cambiar cuando quieras desde tu cuenta.</p>
+      <p class="hint wl-foot">Para regresar a esta pantalla, toca el logo de OnRoute arriba.</p>
     </div></div>`;
   }
   function renderNav() {
     const role = roleOf(), n = S.route.name, biz = S.mode === "negocio", drv = S.mode === "repartidor";
     const nav = $("#topNav"); if (!nav) return;
-    document.body.dataset.mode = S.mode || "";
-    const logo = $(".top .logo"); if (logo) { logo.dataset.nav = biz ? "panel" : drv ? "driver" : S.mode ? "home" : "welcome"; logo.setAttribute("href", biz ? "./#panel" : drv ? "./#repartir" : "./"); }
-    const tag = $("#modeTag"); if (tag) { tag.hidden = !biz && !drv; tag.textContent = drv ? "Repartidores" : "Negocios"; }
+    document.body.dataset.umode = S.mode || "";
+    const logo = $(".top .logo"); if (logo) { logo.dataset.nav = "welcome"; logo.setAttribute("href", "./"); logo.title = "Inicio: elegir cómo usar OnRoute"; }
+    const tag = $("#modeTag"); if (tag) { tag.hidden = n === "welcome" || (!biz && !drv); tag.textContent = drv ? "Repartidores" : "Negocios"; }
     const items = [];
     if (n === "welcome") items.length = 0;
     else if (biz) {
@@ -896,7 +900,7 @@
     } else if (drv) {
       if (n !== "driver" && n !== "admin") items.push(["driver", "← Repartir", "./#repartir", "cta"]);
     } else {
-      items.push(["home", "Explorar", "./"]);
+      items.push(["home", "Explorar", "./#explorar"]);
       if (!S.user) items.push(["account", "Entrar", "./#cuenta", "cta"]);
       else items.push(["account", role === "business" ? "Mi cuenta" : "Mis pedidos", "./#cuenta", "cta"]);
     }
@@ -1059,14 +1063,14 @@
       <h3>Reparte con OnRoute</h3>
       <p>Usa tu auto para entregar pedidos de food trucks y restaurantes cerca de ti, cuando tú quieras. Crea tu cuenta o entra para registrarte.</p>
       ${authFields()}
-      <p class="auth-switch">¿Solo quieres pedir comida? <a href="./" data-mode="cliente">Entra como cliente</a></p>
+      <p class="auth-switch">¿Solo quieres pedir comida? <a href="./" data-pick="cliente">Entra como cliente</a></p>
     </div>`;
     return `<div class="auth">
       <div class="auth-kicker ${biz ? "biz" : ""}">${biz ? I.store : I.food}<span>${biz ? "OnRoute Negocios" : "OnRoute · Pedir comida"}</span></div>
       <h3>${biz ? "Entra a tu negocio" : "Tu cuenta OnRoute"}</h3>
       <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
       ${authFields()}
-      <p class="auth-switch">${biz ? `¿Solo quieres pedir comida? <a href="./" data-mode="cliente">Entra como cliente</a>` : `¿Tienes un food truck o restaurante? <a href="./#panel" data-mode="negocio">Entra a OnRoute Negocios</a>`}</p>
+      <p class="auth-switch">${biz ? `¿Solo quieres pedir comida? <a href="./" data-pick="cliente">Entra como cliente</a>` : `¿Tienes un food truck o restaurante? <a href="./#panel" data-pick="negocio">Entra a OnRoute Negocios</a>`}</p>
     </div>`;
   }
   function regHTML() {
@@ -1636,7 +1640,7 @@ Reglas:
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
-            <div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-mode="cliente">${I.food} Pedir comida (modo cliente)</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>
+            <div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-pick="cliente">${I.food} Pedir comida (modo cliente)</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>
           </div></div>`;
       ["name", "cuisine", "description", "phone", "address"].forEach(k => { const i = el.querySelector(`[data-pf="${k}"]`); if (i) i.value = P[k] || ""; });
       try { const qr = qrcode(0, "M"); qr.addData(link); qr.make(); $("#pfQR").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { $("#pfQR").textContent = "QR no disponible"; }
@@ -1894,7 +1898,7 @@ Reglas:
         <p class="hint">Correo: ${esc(S.user.email || "")}</p>
         ${S.acctMsg ? `<p class="${/No se pudo/.test(S.acctMsg) ? "err" : "ok-msg"}">${esc(S.acctMsg)}</p>` : ""}
         <div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="saveacct">Guardar</button><button class="btn sec" data-auth="logout">Cerrar sesión</button></div></div>
-        <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo con esta misma cuenta.</span></div><a class="btn green sm" href="./#panel" data-mode="negocio">${role === "business" ? "Ir a mi negocio" : "Registrar mi negocio"}</a></div>`;
+        <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo con esta misma cuenta.</span></div><a class="btn green sm" href="./#panel" data-pick="negocio">${role === "business" ? "Ir a mi negocio" : "Registrar mi negocio"}</a></div>`;
     }
     v.innerHTML = `<div class="acct scroll"><div class="acct-in">
       <div class="acct-head"><div><h1>Hola${P.name ? ", " + esc(P.name.split(" ")[0]) : ""}</h1><p class="hint">${role === "business" ? "Cuenta de negocio" : "Cuenta de cliente"} · ${esc(S.user.email || "")}</p></div>
@@ -1998,7 +2002,7 @@ Reglas:
     const t = e.target.closest("a,button,[data-act]");
     if (!t) return;
     const d = t.dataset;
-    if (d.mode) { e.preventDefault(); setMode(d.mode); return; }
+    if (d.pick) { e.preventDefault(); setMode(d.pick); return; }
     if (d.nav) { e.preventDefault(); go(d.nav); return; }
     if (d.rest) { e.preventDefault(); go("rest", d.rest); return; }
     if (d.copy) { const v = d.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => toast("Enlace copiado.")).catch(() => toast(v)); return; }

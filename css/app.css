@@ -626,14 +626,14 @@ body[data-app="panel"] .top,body[data-app="admin"] .top,body[data-app="driver"] 
 
 /* ---------- Bienvenida: elegir entre pedir comida o mi negocio ---------- */
 #vWelcome{background:var(--bg)}
-.welcome{height:100%;display:flex;align-items:center;justify-content:center;padding:28px 16px 40px}
-.wl-in{width:100%;max-width:860px;display:flex;flex-direction:column;gap:10px;text-align:center}
+.welcome{height:100%;display:flex;padding:28px 16px 40px}
+.wl-in{margin:auto;width:100%;max-width:860px;display:flex;flex-direction:column;gap:10px;text-align:center}
 .wl-in h1{margin:0;font-family:var(--f-display);font-size:clamp(26px,5vw,38px);line-height:1.15}
 .wl-sub{margin:0 0 14px;color:var(--muted);font-size:16px}
 .wl-cards{display:grid;grid-template-columns:1fr;gap:14px}
 @media (min-width:700px){.wl-cards{grid-template-columns:1fr 1fr;gap:18px}.wl-card.drv{grid-column:1/-1}}
 @media (min-width:1000px){.wl-in{max-width:1100px}.wl-cards{grid-template-columns:repeat(3,1fr)}.wl-card.drv{grid-column:auto}}
-.wl-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:22px;border-radius:22px;border:2px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;font:inherit}
+.wl-card{position:relative;display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:22px;border-radius:22px;border:2px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;font:inherit}
 .wl-card:hover,.wl-card:focus-visible{transform:translateY(-2px);box-shadow:0 14px 32px -18px rgba(11,31,58,.55)}
 .wl-card b{font-family:var(--f-display);font-size:22px;line-height:1.2}
 .wl-card>span:not(.wl-ic){color:var(--muted);font-size:15px;line-height:1.45}
@@ -696,3 +696,5 @@ body:not([data-app="panel"]):not([data-app="admin"]):not([data-app="driver"]) .m
 .adm-row.drow .acts{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:flex-start}
 .adm-row.drow>div>span{display:block;white-space:normal;color:var(--muted);font-size:13px}
 @media (min-width:900px){.adm-row.drow{grid-template-columns:48px minmax(0,1fr) auto}.adm-row.drow .acts{grid-column:auto;justify-content:flex-end}}
+.wl-tag{position:absolute;top:14px;right:14px;font-style:normal;font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;background:var(--surface-2);color:var(--muted)}
+.wl-card.biz .wl-tag{background:#1C2F4D;color:#A9B8CE}
