@@ -27,5 +27,29 @@
       "purpose": "maskable"
     }
   ],
-  "orientation": "portrait"
+  "orientation": "portrait",
+  "shortcuts": [
+    {
+      "name": "Pedir comida",
+      "short_name": "Pedir",
+      "url": "./?modo=cliente",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "Mi negocio",
+      "short_name": "Mi negocio",
+      "url": "./?modo=negocio#panel",
+      "icons": [
+        {
+          "src": "icon-192.png",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
 }

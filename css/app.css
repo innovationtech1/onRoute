@@ -623,3 +623,38 @@ body[data-app="panel"] .top,body[data-app="admin"] .top{--surface:#0F1E33;--surf
 /* Tarjetas del directorio: el estado va debajo del nombre para que el nombre no se corte */
 .rcard .rstat{display:inline-flex;margin:5px 0 1px;font-size:12px}
 .rcard .side:empty{display:none}
+
+/* ---------- Bienvenida: elegir entre pedir comida o mi negocio ---------- */
+#vWelcome{background:var(--bg)}
+.welcome{height:100%;display:flex;align-items:center;justify-content:center;padding:28px 16px 40px}
+.wl-in{width:100%;max-width:860px;display:flex;flex-direction:column;gap:10px;text-align:center}
+.wl-in h1{margin:0;font-family:var(--f-display);font-size:clamp(26px,5vw,38px);line-height:1.15}
+.wl-sub{margin:0 0 14px;color:var(--muted);font-size:16px}
+.wl-cards{display:grid;grid-template-columns:1fr;gap:14px}
+@media (min-width:700px){.wl-cards{grid-template-columns:1fr 1fr;gap:18px}}
+.wl-card{display:flex;flex-direction:column;align-items:flex-start;gap:10px;text-align:left;padding:22px;border-radius:22px;border:2px solid var(--line);background:var(--surface);color:var(--fg);cursor:pointer;transition:transform .12s ease,box-shadow .12s ease,border-color .12s ease;font:inherit}
+.wl-card:hover,.wl-card:focus-visible{transform:translateY(-2px);box-shadow:0 14px 32px -18px rgba(11,31,58,.55)}
+.wl-card b{font-family:var(--f-display);font-size:22px;line-height:1.2}
+.wl-card>span:not(.wl-ic){color:var(--muted);font-size:15px;line-height:1.45}
+.wl-card em{font-style:normal;font-weight:800;font-size:15px;margin-top:4px}
+.wl-ic{width:52px;height:52px;border-radius:16px;display:grid;place-items:center}
+.wl-ic svg{width:28px;height:28px}
+.wl-card.eat .wl-ic{background:color-mix(in srgb,var(--red) 14%,transparent);color:var(--red)}
+.wl-card.eat em{color:var(--red)}
+.wl-card.eat:hover{border-color:var(--red)}
+.wl-card.biz{background:#0F1E33;border-color:#1C2F4D;color:#EAF0F8}
+.wl-card.biz>span:not(.wl-ic){color:#A9B8CE}
+.wl-card.biz .wl-ic{background:color-mix(in srgb,#22C55E 18%,transparent);color:#4ADE80}
+.wl-card.biz em{color:#4ADE80}
+.wl-card.biz:hover{border-color:#22C55E}
+.wl-foot{margin-top:10px}
+body[data-app="welcome"] .top-r{display:none}
+
+/* Etiqueta "Negocios" junto al logo y pantallas de entrada separadas */
+.mode-tag{margin-right:auto;align-self:center;padding:4px 10px;border-radius:999px;font-size:12px;font-weight:800;letter-spacing:.02em;background:color-mix(in srgb,#22C55E 18%,transparent);color:#4ADE80}
+.auth-kicker{display:inline-flex;align-items:center;gap:8px;align-self:flex-start;padding:6px 12px;border-radius:999px;font-size:13px;font-weight:800;background:color-mix(in srgb,var(--red) 12%,transparent);color:var(--red)}
+.auth-kicker svg{width:16px;height:16px}
+.auth-kicker.biz{background:color-mix(in srgb,#22C55E 18%,transparent);color:#22A35A}
+.auth-switch{margin:6px 0 0;padding-top:12px;border-top:1px solid var(--line);font-size:14px;color:var(--muted);text-align:center}
+.auth-switch a{font-weight:800;color:var(--fg)}
+body:not([data-app="panel"]):not([data-app="admin"]) .mode-tag{color:#15803D;background:#DCFCE7}

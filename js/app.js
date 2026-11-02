@@ -50,6 +50,8 @@
     power: ic('<path d="M12 3v9"/><path d="M6.3 7.3a8 8 0 1 0 11.4 0"/>'),
     search: ic('<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>'),
     target: ic('<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v3M12 20v3M1 12h3M20 12h3"/>'),
+    food: ic('<path d="M7 3v7a2 2 0 0 0 4 0V3M9 12v9"/><path d="M17 21V3c-2 0-3.5 2.5-3.5 6s1.5 4.5 3.5 4.5"/>'),
+    store: ic('<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/><path d="M10 21v-5h4v5"/>'),
     tag: ic('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
     gift: ic('<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v8h14v-8M12 8v13M12 8c-2-4-6-4-6-1.5S10 8 12 8zm0 0c2-4 6-4 6-1.5S14 8 12 8z"/>'),
   };
@@ -114,7 +116,7 @@
     // Página de un negocio
     rid: null, R: null, Rerr: null, Rmenu: [], RmenuReady: false,
     cart: {}, pick: {}, vsel: {}, cat: "", view: "menu", pickup: "asap", name: ls.get("onroute-name", ""), payMode: "card",
-    busy: false, payErr: "", myOrder: null, mine: null, mineReady: false,
+    mode: ls.get("onroute-mode", "") || "", busy: false, payErr: "", myOrder: null, mine: null, mineReady: false,
     // Mi negocio
     user: null, authReady: false, authMsg: "", isAdmin: false, my: null, myReady: false, myMenu: [], myMenuReady: false,
     orders: [], ordersReady: false, ktab: "orders", reg: { kind: "truck" }, regMsg: "", regBusy: false,
@@ -262,6 +264,16 @@
   const meIcon = () => L.divIcon({ className: "", iconSize: [16, 16], iconAnchor: [8, 8], html: '<div class="mepin"></div>' });
 
   // ---------------------------------------------------------------- rutas
+  // ---------------------------------------------------------------- modo: pedir comida o mi negocio
+  // Cada quien elige al entrar por primera vez y la app lo recuerda: los clientes ven el directorio,
+  // los negocios entran directo a su panel. Se puede cambiar desde la cuenta o el perfil.
+  const MODE_K = "onroute-mode";
+  (() => { try { const q = new URLSearchParams(location.search), m = q.get("modo"); if (m === "cliente" || m === "negocio") { ls.set(MODE_K, m); q.delete("modo"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + (m === "negocio" && !location.hash ? "#panel" : location.hash)); } } catch (e) {} })();
+  function setMode(m, nav = true) {
+    S.mode = m; ls.set(MODE_K, m); S.authMsg = "";
+    S.authRole = m === "negocio" ? "business" : "customer";
+    if (nav) go(m === "negocio" ? "panel" : "home"); else renderNav();
+  }
   function parseRoute() {
     const h = location.hash.slice(1);
     if (h === "panel" || h === "cocina") return { name: "panel" };
@@ -269,10 +281,13 @@
     if (h === "admin") return { name: "admin" };
     const r = new URLSearchParams(location.search).get("r");
     if (r && /^[a-z0-9-]{3,40}$/i.test(r)) return { name: "rest", rid: r.toLowerCase() };
+    if (h === "inicio") return { name: "welcome" };
+    if (!S.mode) return { name: "welcome" };
+    if (S.mode === "negocio") return { name: "panel" };
     return { name: "home" };
   }
   function go(name, rid) {
-    const url = name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
+    const url = name === "welcome" ? `${BASE}#inicio` : name === "home" ? BASE : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
     if (location.href !== url) history.pushState(null, "", url);
     route();
   }
@@ -280,6 +295,12 @@
     const r = parseRoute(), prev = S.route;
     S.route = r;
     document.body.dataset.app = r.name;
+    if (r.name === "panel" && !location.hash) history.replaceState(null, "", BASE + "#panel");
+    // Quien abre el panel (enlace, QR de negocios, marcador viejo) queda en modo negocio.
+    if (r.name === "panel" && S.mode !== "negocio") { S.mode = "negocio"; ls.set(MODE_K, "negocio"); }
+    $("#vWelcome").hidden = r.name !== "welcome";
+    if (r.name === "welcome") paint(renderWelcome);
+    document.body.dataset.mode = S.mode || "";
     $("#vHome").hidden = r.name !== "home";
     $("#vRest").hidden = r.name !== "rest";
     $("#vPanel").hidden = r.name !== "panel";
@@ -350,7 +371,7 @@
           <p class="hint" id="dirLocMsg" hidden></p>
           <div class="dir-toggle"><div class="seg" role="group" aria-label="Vista"><button data-dirmode="list">Lista</button><button data-dirmode="map">Mapa</button></div></div>
           <div class="cards" id="dirCards"></div>
-          <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo y recibe pedidos directos, sin pagar comisión por pedido.</span></div><a class="btn green sm" href="./#panel" data-nav="panel">Registrar mi negocio</a></div>
+          <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo y recibe pedidos directos, sin pagar comisión por pedido.</span></div><a class="btn green sm" href="./#panel" data-mode="negocio">Registrar mi negocio</a></div>
         </div>
         <div class="dir-map"><div class="map" id="dirMap" aria-label="Mapa de negocios"></div></div>
       </div>`;
@@ -690,6 +711,11 @@
       db.doc(`users/${u.uid}`).set({ role, name: (S.authName || u.displayName || "").trim().slice(0, 60), email: (u.email || "").slice(0, 120), phone: "", favorites: [], createdAt: Date.now() })
         .catch(e => console.error("OnRoute: perfil", e)).finally(() => { creatingProfile = false; });
     }
+    // Quien ya tenía cuenta y nunca eligió modo: se elige solo según su cuenta.
+    if (u && !S.mode && S.profileReady && S.myReady && roleOf()) {
+      const m = roleOf() === "business" ? "negocio" : "cliente"; S.mode = m; ls.set(MODE_K, m);
+      if (S.route.name === "welcome") { go(m === "negocio" ? "panel" : "home"); return; }
+    }
     // Después de entrar: cada quien a su vista.
     if (u && S.loginIntent && S.profileReady && S.myReady && roleOf()) {
       const role = roleOf(), intent = S.loginIntent; S.loginIntent = null;
@@ -704,14 +730,39 @@
     if (n === "admin") paint(renderAdmin);
     if (n === "rest") paint(renderRest);
   }
+  function renderWelcome() {
+    const v = $("#vWelcome");
+    if (v.dataset.built) return;
+    v.dataset.built = "1";
+    v.innerHTML = `<div class="welcome scroll"><div class="wl-in">
+      <h1>¿Cómo quieres usar OnRoute?</h1>
+      <p class="wl-sub">Elige una opción. La próxima vez entras directo.</p>
+      <div class="wl-cards">
+        <button class="wl-card eat" data-mode="cliente"><span class="wl-ic">${I.food}</span><b>Quiero pedir comida</b>
+          <span>Encuentra food trucks y restaurantes cerca de ti y pide directo, sin filas y sin comisiones de apps de delivery.</span><em>Ver negocios cerca →</em></button>
+        <button class="wl-card biz" data-mode="negocio"><span class="wl-ic">${I.store}</span><b>Tengo un negocio</b>
+          <span>Recibe pedidos en tu cocina, maneja tu menú, tus promociones y tus ventas. Para food trucks y restaurantes.</span><em>Entrar a mi negocio →</em></button>
+      </div>
+      <p class="hint wl-foot">Puedes cambiar cuando quieras desde tu cuenta.</p>
+    </div></div>`;
+  }
   function renderNav() {
-    const role = roleOf(), n = S.route.name;
+    const role = roleOf(), n = S.route.name, biz = S.mode === "negocio";
     const nav = $("#topNav"); if (!nav) return;
-    const items = [["home", "Explorar", "./"]];
-    if (!S.user) items.push(["account", "Entrar", "./#cuenta", "cta"]);
-    else if (role === "business") items.push(["panel", "Mi negocio", "./#panel", "cta"]);
-    else items.push(["account", "Mis pedidos", "./#cuenta", "cta"]);
-    if (S.isAdmin) items.push(["admin", "Admin", "./#admin"]);
+    document.body.dataset.mode = S.mode || "";
+    const logo = $(".top .logo"); if (logo) { logo.dataset.nav = biz ? "panel" : S.mode ? "home" : "welcome"; logo.setAttribute("href", biz ? "./#panel" : "./"); }
+    const tag = $("#modeTag"); if (tag) tag.hidden = !biz;
+    const items = [];
+    if (n === "welcome") items.length = 0;
+    else if (biz) {
+      // Modo negocio: nada de "Explorar"; solo su panel (y regresar a él si está viendo su página como cliente).
+      if (n !== "panel" && n !== "admin") items.push(["panel", "← Mi negocio", "./#panel", "cta"]);
+    } else {
+      items.push(["home", "Explorar", "./"]);
+      if (!S.user) items.push(["account", "Entrar", "./#cuenta", "cta"]);
+      else items.push(["account", role === "business" ? "Mi cuenta" : "Mis pedidos", "./#cuenta", "cta"]);
+    }
+    if (S.isAdmin && n !== "welcome") items.push(["admin", "Admin", "./#admin"]);
     nav.innerHTML = items.map(([k, l, h, c]) => `<a class="tbtn ${c || ""}" href="${h}" data-nav="${k}" aria-current="${n === k ? "page" : "false"}">${l}</a>`).join("");
   }
   function watchMine2(rid) {
@@ -822,7 +873,7 @@
     let head = `<div class="p-head"><h2>${S.my ? esc(S.my.name) : "Mi negocio"}</h2>${S.my ? statusChip(S.my.status) : ""}<span class="grow"></span>
       ${S.my ? `<a class="btn sec sm" href="./?r=${esc(S.my.id)}" data-rest="${esc(S.my.id)}">Ver mi página</a>` : ""}</div>`;
     if (!S.authReady || (S.user && (!S.myReady || !S.profileReady))) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
-    if (!S.user) { if (!S.authRole) S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
+    if (!S.user) { S.authRole = "business"; v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.my) { v.dataset.built = ""; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${regHTML()}</div></div>`; return; }
     const tabs = [["orders", "Pedidos", I.orders], ["menu", "Menú", I.menu], ["promo", "Promos", I.tag], ["rep", "Reportes", I.rep], ["prof", "Perfil", I.prof]];
     if (stripeBack && !S.stripeChecked) { S.stripeChecked = true; S.ktab = "prof"; S.stripeMsg = stripeBack === "back" ? "Revisando tu cuenta de Stripe…" : "El enlace de Stripe caducó (duran unos minutos). Toca Continuar en Stripe para abrir uno nuevo."; if (stripeBack === "back") stripeStatus(); }
@@ -856,10 +907,8 @@
   function authHTML() {
     const biz = S.authRole === "business";
     return `<div class="auth">
-      <div class="kinds roles" role="group" aria-label="Tipo de cuenta">
-        <button data-authrole="customer" aria-pressed="${!biz}"><b>Quiero pedir comida</b><span>Guarda tus pedidos y favoritos</span></button>
-        <button data-authrole="business" aria-pressed="${biz}"><b>Tengo un negocio</b><span>Food truck o restaurante</span></button></div>
-      <h3>${biz ? "Tu negocio en OnRoute" : "Tu cuenta OnRoute"}</h3>
+      <div class="auth-kicker ${biz ? "biz" : ""}">${biz ? I.store : I.food}<span>${biz ? "OnRoute Negocios" : "OnRoute · Pedir comida"}</span></div>
+      <h3>${biz ? "Entra a tu negocio" : "Tu cuenta OnRoute"}</h3>
       <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
       <div class="field"><label for="authName">Tu nombre <span class="hint">(solo para crear cuenta)</span></label><input id="authName" autocomplete="name" maxlength="60" value="${esc(S.authName)}" placeholder="Ej. Ana López"></div>
       <div class="field"><label for="authEmail">Correo</label><input id="authEmail" type="email" autocomplete="email" placeholder="tu@correo.com"></div>
@@ -869,6 +918,7 @@
       <div class="or">o</div>
       ${inApp ? `<p class="err">Estás en el navegador de ${inApp}. Google no deja entrar desde aquí: abre OnRoute en Chrome o Safari, o usa correo y contraseña.</p>` : ""}
       <button class="btn google" data-auth="google" ${inApp ? "disabled" : ""}><svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9 3.5l6.7-6.7C35.6 2.4 30.2 0 24 0 14.6 0 6.6 5.4 2.7 13.3l7.8 6C12.4 13.7 17.7 9.5 24 9.5z"/><path fill="#4285F4" d="M46.5 24.5c0-1.6-.1-3.1-.4-4.5H24v9h12.7c-.6 3-2.3 5.5-4.8 7.2l7.5 5.8c4.4-4.1 7.1-10.1 7.1-17.5z"/><path fill="#FBBC05" d="M10.5 28.7c-.5-1.4-.8-3-.8-4.7s.3-3.2.8-4.7l-7.8-6C1 16.6 0 20.2 0 24s1 7.4 2.7 10.7l7.8-6z"/><path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.9-5.8l-7.5-5.8c-2.1 1.4-4.8 2.3-8.4 2.3-6.3 0-11.6-4.2-13.5-9.9l-7.8 6C6.6 42.6 14.6 48 24 48z"/></svg>Continuar con Google</button>
+      <p class="auth-switch">${biz ? `¿Solo quieres pedir comida? <a href="./" data-mode="cliente">Entra como cliente</a>` : `¿Tienes un food truck o restaurante? <a href="./#panel" data-mode="negocio">Entra a OnRoute Negocios</a>`}</p>
     </div>`;
   }
   function regHTML() {
@@ -1438,7 +1488,7 @@ Reglas:
             <div class="kcard"><h4>Tu enlace y código QR</h4><div class="share"><div class="qr" id="pfQR"></div><div class="link"><code>${esc(link)}</code>
               <div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sm sec" data-copy="${esc(link)}">Copiar enlace</button><a class="btn sm sec" href="./?r=${esc(R.id)}" data-rest="${esc(R.id)}">Abrir</a></div>
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
-            <div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div>
+            <div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-mode="cliente">${I.food} Pedir comida (modo cliente)</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>
           </div></div>`;
       ["name", "cuisine", "description", "phone", "address"].forEach(k => { const i = el.querySelector(`[data-pf="${k}"]`); if (i) i.value = P[k] || ""; });
       try { const qr = qrcode(0, "M"); qr.addData(link); qr.make(); $("#pfQR").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { $("#pfQR").textContent = "QR no disponible"; }
@@ -1674,7 +1724,7 @@ Reglas:
   function renderAccount() {
     const v = $("#vAcct");
     if (!S.authReady || (S.user && (!S.profileReady || !S.myReady))) { v.innerHTML = `<div class="empty-box">Cargando…</div>`; return; }
-    if (!S.user) { if (!S.authRole) S.authRole = "customer"; v.innerHTML = `<div class="acct scroll"><div class="acct-in">${authHTML()}</div></div>`; return; }
+    if (!S.user) { S.authRole = "customer"; v.innerHTML = `<div class="acct scroll"><div class="acct-in">${authHTML()}</div></div>`; return; }
     const P = S.profile || {}, role = roleOf();
     const tabs = [["orders", "Mis pedidos"], ["favs", "Favoritos"], ["data", "Mis datos"]];
     let body = "";
@@ -1696,7 +1746,7 @@ Reglas:
         <p class="hint">Correo: ${esc(S.user.email || "")}</p>
         ${S.acctMsg ? `<p class="${/No se pudo/.test(S.acctMsg) ? "err" : "ok-msg"}">${esc(S.acctMsg)}</p>` : ""}
         <div class="btns" style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn" data-act="saveacct">Guardar</button><button class="btn sec" data-auth="logout">Cerrar sesión</button></div></div>
-        <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo con esta misma cuenta.</span></div><a class="btn green sm" href="./#panel" data-nav="panel">Registrar mi negocio</a></div>`;
+        <div class="dir-join"><div><b>¿Tienes un food truck o restaurante?</b><span>Regístralo con esta misma cuenta.</span></div><a class="btn green sm" href="./#panel" data-mode="negocio">${role === "business" ? "Ir a mi negocio" : "Registrar mi negocio"}</a></div>`;
     }
     v.innerHTML = `<div class="acct scroll"><div class="acct-in">
       <div class="acct-head"><div><h1>Hola${P.name ? ", " + esc(P.name.split(" ")[0]) : ""}</h1><p class="hint">${role === "business" ? "Cuenta de negocio" : "Cuenta de cliente"} · ${esc(S.user.email || "")}</p></div>
@@ -1787,6 +1837,7 @@ Reglas:
     const t = e.target.closest("a,button,[data-act]");
     if (!t) return;
     const d = t.dataset;
+    if (d.mode) { e.preventDefault(); setMode(d.mode); return; }
     if (d.nav) { e.preventDefault(); go(d.nav); return; }
     if (d.rest) { e.preventDefault(); go("rest", d.rest); return; }
     if (d.copy) { const v = d.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => toast("Enlace copiado.")).catch(() => toast(v)); return; }
