@@ -59,6 +59,10 @@
     food: ic('<path d="M7 3v7a2 2 0 0 0 4 0V3M9 12v9"/><path d="M17 21V3c-2 0-3.5 2.5-3.5 6s1.5 4.5 3.5 4.5"/>'),
     store: ic('<path d="M3 9l1.5-5h15L21 9"/><path d="M3 9h18v2a3 3 0 0 1-6 0 3 3 0 0 1-6 0 3 3 0 0 1-6 0z"/><path d="M5 13v8h14v-8"/><path d="M10 21v-5h4v5"/>'),
     tag: ic('<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.5"/>'),
+    help: ic('<circle cx="12" cy="12" r="9"/><path d="M9.5 9.5a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .9-1 1.7M12 17v.01"/>'),
+    chat: ic('<path d="M4 5h16v11H9l-5 4V5z"/>'),
+    down: ic('<path d="M12 4v11M7 10l5 5 5-5M5 20h14"/>'),
+    share: ic('<circle cx="18" cy="5" r="2.5"/><circle cx="6" cy="12" r="2.5"/><circle cx="18" cy="19" r="2.5"/><path d="m8.2 10.8 7.6-4.4M8.2 13.2l7.6 4.4"/>'),
     gift: ic('<rect x="3" y="8" width="18" height="5" rx="1"/><path d="M5 13v8h14v-8M12 8v13M12 8c-2-4-6-4-6-1.5S10 8 12 8zm0 0c2-4 6-4 6-1.5S14 8 12 8z"/>'),
   };
 
@@ -282,6 +286,7 @@
   }
   function parseRoute() {
     const h = location.hash.slice(1);
+    if (h === "ayuda" || h.startsWith("ayuda/")) return { name: "help", sec: h.slice(6).replace(/[^a-z-]/g, "") };
     if (h === "panel" || h === "cocina") return { name: "panel" };
     if (h === "cuenta" || h === "entrar") return { name: "account" };
     if (h === "admin") return { name: "admin" };
@@ -295,7 +300,7 @@
     return { name: "welcome" };
   }
   function go(name, rid) {
-    const url = name === "welcome" ? BASE : name === "driver" ? `${BASE}#repartir` : name === "home" ? `${BASE}#explorar` : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
+    const url = name === "help" ? `${BASE}#ayuda${rid ? "/" + rid : ""}` : name === "welcome" ? BASE : name === "driver" ? `${BASE}#repartir` : name === "home" ? `${BASE}#explorar` : name === "rest" ? `${BASE}?r=${encodeURIComponent(rid)}` : name === "account" ? `${BASE}#cuenta` : name === "admin" ? `${BASE}#admin` : `${BASE}#panel`;
     if (location.href !== url) history.pushState(null, "", url);
     route();
   }
@@ -318,6 +323,9 @@
     $("#vPanel").hidden = r.name !== "panel";
     $("#vAcct").hidden = r.name !== "account";
     $("#vAdmin").hidden = r.name !== "admin";
+    $("#vHelp").hidden = r.name !== "help";
+    if (r.name === "help") paint(renderHelp);
+    closeDrawer();
     renderNav();
     if (r.name !== "rest" && S.rid) closeRest();
     if (r.name === "rest" && (prev.name !== "rest" || prev.rid !== r.rid)) openRest(r.rid);
@@ -325,7 +333,7 @@
     if (r.name === "panel") paint(renderPanel);
     if (r.name === "account") { ensureDir(); paint(renderAccount); }
     if (r.name === "admin") paint(renderAdmin);
-    document.title = r.name === "panel" ? "Mi negocio · OnRoute" : r.name === "account" ? "Mi cuenta · OnRoute" : r.name === "admin" ? "Administración · OnRoute" : r.name === "rest" ? `${S.R ? S.R.name + " · " : ""}OnRoute` : "OnRoute · Comida cerca de ti";
+    document.title = r.name === "panel" ? "Mi negocio · OnRoute" : r.name === "account" ? "Mi cuenta · OnRoute" : r.name === "admin" ? "Administración · OnRoute" : r.name === "help" ? `${(helpDocs().find(x => x.id === r.sec) || { title: "Centro de ayuda" }).title} · OnRoute` : r.name === "rest" ? `${S.R ? S.R.name + " · " : ""}OnRoute` : "OnRoute · Comida cerca de ti";
     setTimeout(() => { [dirMap, restMap, pfMap].forEach(m => { try { m && m.invalidateSize(); } catch (e) {} }); }, 60);
   }
   window.addEventListener("popstate", route);
@@ -817,9 +825,10 @@
       S.avail = []; S.cur = null; S.curId = null; S.curInfo = null; S.myDlv = []; if (drvWatch !== null) drvGps(false);
       [myUnsub, ordUnsub, myMenuUnsub, allUnsub, profUnsub, histUnsub, usersUnsub].forEach(f => { try { f && f(); } catch (e) {} });
       myUnsub = ordUnsub = myMenuUnsub = allUnsub = profUnsub = histUnsub = usersUnsub = null;
+      [supUnsub, mySupUnsub].forEach(f => { try { f && f(); } catch (e) {} }); supUnsub = mySupUnsub = null; S.sup = []; S.supReady = false; S.mySup = null;
       stopGps(true);
       if (u) {
-        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) { watchAll(); watchUsers(); watchDrivers(); } afterAuth(); }).catch(() => afterAuth());
+        db.doc("meta/owner").get().then(d => { S.isAdmin = !!(d.exists && d.data().uid === u.uid); if (S.isAdmin) { watchAll(); watchUsers(); watchDrivers(); watchSupport(); } afterAuth(); }).catch(() => afterAuth());
         drvUnsub = db.doc(`drivers/${u.uid}`).onSnapshot(s => { S.drv = s.exists ? { id: s.id, ...s.data() } : null; S.drvReady = true; afterAuth(); }, () => { S.drvReady = true; afterAuth(); });
         profUnsub = db.doc(`users/${u.uid}`).onSnapshot(s => { S.profile = s.exists ? s.data() : null; S.profileReady = true; afterAuth(); }, () => { S.profileReady = true; afterAuth(); });
         myUnsub = db.collection("restaurants").where("ownerUid", "==", u.uid).limit(1).onSnapshot(snap => {
@@ -841,6 +850,140 @@
   function watchDrivers() {
     if (driversUnsub) return;
     driversUnsub = db.collection("drivers").onSnapshot(snap => { S.drivers = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.driversReady = true; if (S.route.name === "admin") paint(renderAdmin); }, e => { console.warn("OnRoute: repartidores", e); S.driversReady = true; });
+  }
+  // ================================================================ CENTRO DE AYUDA, MENÚ Y SOPORTE
+  let supUnsub = null, mySupUnsub = null;
+  const SUP_TOPICS = { order: "Un pedido", pay: "Pago o reembolso", biz: "Mi negocio", drv: "Repartidor / entregas", acct: "Mi cuenta", bug: "La app no funciona bien", other: "Otro" };
+  const APP_VER = "1.36";
+  let docsCache = null;
+  function helpDocs() { if (!docsCache) docsCache = typeof window.ONROUTE_DOCS === "function" ? window.ONROUTE_DOCS(DLV) : []; return docsCache; }
+  function renderHelp() {
+    const v = $("#vHelp"), docs = helpDocs(), sec = S.route.sec || "", doc = docs.find(x => x.id === sec);
+    const groups = [...new Set(docs.map(x => x.group))];
+    const side = `<nav class="hl-side scroll" aria-label="Secciones de ayuda"><a class="hl-home" href="./#ayuda" data-help="" aria-current="${!doc}">Centro de ayuda</a>${groups.map(g => `<p class="hl-g">${esc(g)}</p>${docs.filter(x => x.group === g).map(x => `<a href="./#ayuda/${x.id}" data-help="${x.id}" aria-current="${x.id === sec}"><span aria-hidden="true">${x.icon}</span>${esc(x.title)}</a>`).join("")}`).join("")}</nav>`;
+    let main;
+    if (!doc) {
+      main = `<div class="hl-hero"><h1>Centro de ayuda</h1><p>Todo lo que necesitas para pedir, vender y repartir con OnRoute.</p></div>
+        ${groups.map(g => `<h2 class="hl-gt">${esc(g)}</h2><div class="hl-grid">${docs.filter(x => x.group === g).map(x => `<a class="hl-card" href="./#ayuda/${x.id}" data-help="${x.id}"><span class="hl-ic" aria-hidden="true">${x.icon}</span><b>${esc(x.title)}</b></a>`).join("")}</div>`).join("")}
+        <p class="hint hl-ver">OnRoute v${APP_VER} · © ${new Date().getFullYear()} InnovationTECH · San Antonio, TX</p>`;
+    } else {
+      const i = docs.indexOf(doc), prev = docs[i - 1], next = docs[i + 1];
+      main = `<a class="back-link hl-back" href="./#ayuda" data-help="">← Centro de ayuda</a>
+        <article class="doc"><p class="hl-kicker">${esc(doc.group)}</p><h1>${esc(doc.title)}</h1>${doc.html}</article>
+        <div class="hl-pn">${prev ? `<a href="./#ayuda/${prev.id}" data-help="${prev.id}"><small>Anterior</small>${esc(prev.title)}</a>` : "<span></span>"}${next ? `<a class="nx" href="./#ayuda/${next.id}" data-help="${next.id}"><small>Siguiente</small>${esc(next.title)}</a>` : ""}</div>
+        ${doc.id !== "contacto" ? `<div class="hl-more"><b>¿No encontraste lo que buscabas?</b><a class="btn sec sm" href="./#ayuda/contacto" data-help="contacto">Escríbenos</a></div>` : ""}`;
+    }
+    v.innerHTML = `<div class="help">${side}<div class="hl-main scroll" id="hlMain"><div class="hl-in">${main}</div></div></div>`;
+    $("#hlMain").scrollTop = 0;
+    if (doc && doc.id === "contacto") { paintSupport(); watchMySupport(); }
+  }
+  // --- Formulario de soporte (cualquiera puede escribir; solo el admin ve todos los reportes)
+  function paintSupport() {
+    const box = $("#supportBox"); if (!box) return;
+    if ($("#supMsg")) readSup();
+    const f = S.supForm || (S.supForm = { name: (S.profile && S.profile.name) || (S.user && S.user.displayName) || "", email: (S.user && S.user.email) || "", topic: "", ref: "", msg: "" });
+    if (!f.name) f.name = (S.profile && S.profile.name) || (S.user && S.user.displayName) || "";
+    if (!f.email) f.email = (S.user && S.user.email) || "";
+    const mail = window.ONROUTE_SUPPORT_EMAIL;
+    box.innerHTML = `${S.supSent ? `<div class="banner ok"><span><b>¡Recibimos tu mensaje!</b> Te contestamos ${S.user ? "aquí mismo y " : ""}a tu correo lo antes posible.</span><button class="btn sm sec" data-act="supnew">Escribir otro</button></div>` : `
+      <div class="sup-form">
+        <div class="frow"><div class="field"><label for="supName">Tu nombre</label><input id="supName" maxlength="60" autocomplete="name" value="${esc(f.name)}"></div>
+          <div class="field"><label for="supEmail">Correo para responderte</label><input id="supEmail" type="email" maxlength="120" autocomplete="email" value="${esc(f.email)}"></div></div>
+        <div class="frow"><div class="field"><label for="supTopic">¿Sobre qué es?</label><select id="supTopic"><option value="">Elige una opción</option>${Object.entries(SUP_TOPICS).map(([k, l]) => `<option value="${k}" ${f.topic === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+          <div class="field"><label for="supRef">Número de pedido <span class="hint">(si aplica)</span></label><input id="supRef" maxlength="40" value="${esc(f.ref)}" placeholder="Ej. 1042"></div></div>
+        <div class="field"><label for="supMsg">Cuéntanos qué pasó</label><textarea id="supMsg" rows="5" maxlength="2000" placeholder="Con más detalle te ayudamos más rápido.">${esc(f.msg)}</textarea></div>
+        <p class="hint">Nunca te pediremos tu contraseña ni los datos de tu tarjeta. No los escribas aquí.</p>
+        ${S.supMsg ? `<p class="err" role="alert">${esc(S.supMsg)}</p>` : ""}
+        <button class="btn green" data-act="sup" ${S.supBusy ? "disabled" : ""}>${S.supBusy ? "Enviando…" : "Enviar mensaje"}</button>
+      </div>`}
+      ${mail ? `<p class="hint" style="margin-top:12px">También puedes escribir a <a href="mailto:${esc(mail)}">${esc(mail)}</a>.</p>` : ""}
+      ${S.user ? `<div class="sup-mine"><h3>Mis reportes</h3>${S.mySup === null ? `<p class="hint">Cargando…</p>` : !S.mySup.length ? `<p class="hint">Todavía no has mandado reportes.</p>` : S.mySup.map(x => `<div class="sup-row ${x.status === "open" ? "open" : ""}"><div class="sup-h"><b>${esc(SUP_TOPICS[x.topic] || x.topic)}${x.ref ? " · pedido " + esc(x.ref) : ""}</b><span class="chip cdot ${x.status === "open" ? "closed" : "open"}">${x.status === "open" ? "En revisión" : "Resuelto"}</span></div><span class="hint">${ago(num(x.createdAt))}</span><p class="sup-msg">${esc(x.msg)}</p>${x.reply ? `<p class="sup-reply"><b>Respuesta de OnRoute:</b> ${esc(x.reply)}</p>` : ""}</div>`).join("")}</div>` : `<p class="hint" style="margin-top:14px"><a href="./#cuenta" data-nav="account">Entra a tu cuenta</a> para ver las respuestas a tus reportes dentro de la app.</p>`}`;
+  }
+  function watchMySupport() {
+    if (!S.user || mySupUnsub) return;
+    mySupUnsub = db.collection("support").where("uid", "==", S.user.uid).limit(30).onSnapshot(sn => {
+      S.mySup = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => num(b.createdAt) - num(a.createdAt));
+      if (S.route.name === "help" && S.route.sec === "contacto") paintSupport();
+    }, e => { console.warn("OnRoute: mis reportes", e); S.mySup = []; });
+  }
+  function readSup() { const f = S.supForm || {}; ["name", "email", "topic", "ref", "msg"].forEach(k => { const el = $("#sup" + k[0].toUpperCase() + k.slice(1)); if (el) f[k] = el.value; }); S.supForm = f; return f; }
+  async function sendSupport() {
+    const f = readSup(), name = f.name.trim(), email = f.email.trim(), msg = f.msg.trim();
+    S.supMsg = !name ? "Escribe tu nombre." : !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? "Escribe un correo válido para poder responderte." : !SUP_TOPICS[f.topic] ? "Elige sobre qué es tu mensaje." : msg.length < 10 ? "Cuéntanos un poco más (mínimo 10 letras)." : "";
+    if (S.supMsg) { paintSupport(); return; }
+    // Freno sencillo para no mandar muchos reportes seguidos desde el mismo navegador.
+    const last = Number(ls.get("onroute-sup-at")) || 0;
+    if (Date.now() - last < 60000) { S.supMsg = "Espera un minuto antes de mandar otro mensaje."; paintSupport(); return; }
+    S.supBusy = true; paintSupport();
+    try {
+      await db.collection("support").add({ uid: S.user ? S.user.uid : null, name: name.slice(0, 60), email: email.slice(0, 120), topic: f.topic, ref: f.ref.trim().slice(0, 40), msg: msg.slice(0, 2000), mode: (S.mode || "").slice(0, 20), status: "open", createdAt: Date.now() });
+      ls.set("onroute-sup-at", String(Date.now()));
+      S.supSent = true; S.supForm = null; S.supMsg = "";
+    } catch (e) { console.error("OnRoute: soporte", e); S.supMsg = "No se pudo enviar. Revisa tu conexión e inténtalo de nuevo."; }
+    S.supBusy = false; paintSupport();
+  }
+  function watchSupport() {
+    if (supUnsub) return;
+    supUnsub = db.collection("support").orderBy("createdAt", "desc").limit(150).onSnapshot(sn => { S.sup = sn.docs.map(d => ({ id: d.id, ...d.data() })); S.supReady = true; if (S.route.name === "admin") paint(renderAdmin); },
+      e => { console.warn("OnRoute: soporte (admin)", e); S.supReady = true; });
+  }
+  async function supUpdate(id, st) {
+    const ta = $("#supR-" + id), reply = ta ? ta.value.trim().slice(0, 2000) : "";
+    const data = { status: st === "open" ? "open" : "done" };
+    if (reply) { data.reply = reply; data.repliedAt = Date.now(); }
+    try { await db.doc(`support/${id}`).update(data); toast(st === "open" ? "Reporte reabierto." : "Reporte marcado como resuelto."); }
+    catch (e) { console.error(e); toast("No se pudo guardar."); }
+  }
+  // --- Menú lateral (hamburguesa)
+  function openDrawer() { S.drawer = true; renderDrawer(); const b = $("#menuBtn"); if (b) { b.setAttribute("aria-expanded", "true"); b.setAttribute("aria-label", "Cerrar menú"); } setTimeout(() => { const f = $("#drawer .dr-close"); if (f) f.focus(); }, 30); }
+  function closeDrawer() { if (!S.drawer) return; S.drawer = false; const dr = $("#drawer"); if (dr) { dr.hidden = true; dr.innerHTML = ""; } const b = $("#menuBtn"); if (b) { b.setAttribute("aria-expanded", "false"); b.setAttribute("aria-label", "Abrir menú"); } }
+  const standalone = () => { try { return matchMedia("(display-mode: standalone)").matches || navigator.standalone === true; } catch (e) { return false; } };
+  let installEvt = null;
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); installEvt = e; });
+  window.addEventListener("appinstalled", () => { installEvt = null; toast("¡OnRoute quedó instalada!"); });
+  async function installApp() {
+    if (installEvt) { try { installEvt.prompt(); await installEvt.userChoice; } catch (e) {} installEvt = null; return; }
+    const ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+    toast(ios ? "En Safari toca Compartir y luego “Agregar a pantalla de inicio”." : "En el menú del navegador (⋮) elige “Instalar app” o “Agregar a pantalla de inicio”.");
+  }
+  async function shareApp() {
+    const url = "https://getonroute.app/", data = { title: "OnRoute", text: "Pide directo a food trucks y restaurantes cerca de ti, sin comisiones de apps de delivery.", url };
+    try { if (navigator.share) { await navigator.share(data); return; } } catch (e) { if (e && e.name === "AbortError") return; }
+    try { await navigator.clipboard.writeText(url); toast("Enlace de OnRoute copiado."); } catch (e) { toast(url); }
+  }
+  function renderDrawer() {
+    const dr = $("#drawer"); if (!dr) return;
+    const role = roleOf(), n = S.route.name, u = S.user;
+    const who = u ? ((S.profile && S.profile.name) || u.displayName || u.email || "Mi cuenta") : "";
+    const roleL = S.isAdmin ? "Administrador" : role === "business" ? (S.my ? esc(S.my.name) : "Negocio") : role === "driver" ? "Repartidor" : "Cliente";
+    const it = (attrs, icon, label, cur, extra) => `<a ${attrs} class="dr-it" ${cur ? 'aria-current="page"' : ""}><span class="dr-ic">${icon}</span><span>${label}</span>${extra || ""}</a>`;
+    const supOpen = S.isAdmin ? (S.sup || []).filter(x => x.status === "open").length : 0;
+    dr.innerHTML = `<aside class="dr-panel scroll" role="dialog" aria-modal="true" aria-label="Menú de OnRoute">
+      <div class="dr-head"><span class="dr-logo">On<b>Route</b></span><button class="dr-close" data-act="menu" aria-label="Cerrar menú">✕</button></div>
+      <div class="dr-user">${u ? `<span class="dr-av">${esc(initials(who))}</span><div><b>${esc(who)}</b><small>${roleL}${u.email && u.email !== who ? " · " + esc(u.email) : ""}</small></div>`
+        : `<span class="dr-av">${I.prof}</span><div><b>Invitado</b><small>Entra para guardar tus pedidos</small></div>`}</div>
+      <p class="dr-g">Usar OnRoute</p>
+      ${it('href="./" data-nav="welcome"', I.target, "Inicio", n === "welcome")}
+      ${it('href="./#explorar" data-pick="cliente"', I.food, "Pedir comida", n === "home" || n === "rest")}
+      ${it('href="./#panel" data-pick="negocio"', I.store, S.my ? "Mi negocio" : "Tengo un negocio", n === "panel")}
+      ${it('href="./#repartir" data-pick="repartidor"', I.car, "Repartir", n === "driver")}
+      ${u ? it('href="./#cuenta" data-nav="account"', I.orders, role === "business" ? "Mi cuenta" : "Mis pedidos y cuenta", n === "account") : ""}
+      ${S.isAdmin ? it('href="./#admin" data-nav="admin"', I.adm, "Administración", n === "admin", supOpen ? `<i class="badge">${supOpen}</i>` : "") : ""}
+      <p class="dr-g">Ayuda</p>
+      ${it('href="./#ayuda" data-help=""', I.help, "Centro de ayuda", n === "help" && !S.route.sec)}
+      ${it('href="./#ayuda/como-funciona" data-help="como-funciona"', I.menu, "Cómo funciona", n === "help" && S.route.sec === "como-funciona")}
+      ${it('href="./#ayuda/faq" data-help="faq"', I.alert, "Preguntas frecuentes", n === "help" && S.route.sec === "faq")}
+      ${it('href="./#ayuda/tarifas" data-help="tarifas"', I.cash, "Tarifas y pagos", n === "help" && S.route.sec === "tarifas")}
+      ${it('href="./#ayuda/contacto" data-help="contacto"', I.chat, "Contacto y soporte", n === "help" && S.route.sec === "contacto")}
+      <p class="dr-g">App</p>
+      ${standalone() ? "" : `<button class="dr-it" data-act="install"><span class="dr-ic">${I.down}</span><span>Instalar OnRoute</span></button>`}
+      <button class="dr-it" data-act="share"><span class="dr-ic">${I.share}</span><span>Compartir OnRoute</span></button>
+      <div class="dr-foot">
+        ${u ? `<button class="btn sec" data-auth="logout">Cerrar sesión</button>` : `<a class="btn dark" href="./#cuenta" data-nav="account">Entrar o crear cuenta</a>`}
+        <p class="dr-legal"><a href="./#ayuda/terminos" data-help="terminos">Términos</a> · <a href="./#ayuda/privacidad" data-help="privacidad">Privacidad</a> · <a href="./#ayuda/seguridad" data-help="seguridad">Seguridad</a></p>
+        <p class="hint">OnRoute v${APP_VER} · © ${new Date().getFullYear()} InnovationTECH</p>
+      </div></aside>`;
+    dr.hidden = false;
   }
   function roleOf() { if (!S.user) return null; if (S.my) return "business"; if (S.drv) return "driver"; return (S.profile && S.profile.role) || null; }
   let creatingProfile = false;
@@ -874,6 +1017,8 @@
     if (n === "rest") paint(renderRest);
     if (n === "driver") paint(renderDriver);
     if (n === "welcome") { $("#vWelcome").dataset.built = ""; paint(renderWelcome); }
+    if (n === "help" && S.route.sec === "contacto") { paintSupport(); watchMySupport(); }
+    if (S.drawer) renderDrawer();
   }
   // ---------------------------------------------------------------- repartidores
   const PAY_APPS = { cashapp: ["Cash App", "Tu $cashtag", "Ej. $juanperez"], zelle: ["Zelle", "Correo o teléfono de Zelle", "Ej. 210 555 0123"], venmo: ["Venmo", "Tu usuario de Venmo", "Ej. @juan-perez"] };
@@ -1194,7 +1339,8 @@
         <button class="wl-card drv" data-pick="repartidor">${tag("repartidor")}<span class="wl-ic">${I.car}</span><b>Quiero repartir</b>
           <span>Gana dinero entregando pedidos con tu propio auto, en tus horarios. Solo necesitas tu licencia vigente.</span><em>${S.drv ? "Ir a mi panel de repartidor →" : "Registrarme como repartidor →"}</em></button>
       </div>
-      <p class="hint wl-foot">Para regresar a esta pantalla, toca el logo de OnRoute arriba.</p>
+      <nav class="wl-links" aria-label="Ayuda">${[["como-funciona", "Cómo funciona"], ["faq", "Preguntas frecuentes"], ["tarifas", "Tarifas"], ["seguridad", "Seguridad"], ["contacto", "Contacto"]].map(([k, l]) => `<a href="./#ayuda/${k}" data-help="${k}">${l}</a>`).join("")}</nav>
+      <p class="hint wl-foot">Para regresar a esta pantalla toca el logo de OnRoute o abre el menú ☰. Al usar OnRoute aceptas los <a href="./#ayuda/terminos" data-help="terminos">Términos</a> y la <a href="./#ayuda/privacidad" data-help="privacidad">Política de privacidad</a>.</p>
     </div></div>`;
   }
   function renderNav() {
@@ -1374,6 +1520,7 @@
       <h3>Reparte con OnRoute</h3>
       <p>Usa tu auto para entregar pedidos de food trucks y restaurantes cerca de ti, cuando tú quieras. Crea tu cuenta o entra para registrarte.</p>
       ${authFields()}
+      <p class="hint legal-note">Al crear tu cuenta aceptas los <a href="./#ayuda/terminos" data-help="terminos">Términos de uso</a>, los <a href="./#ayuda/terminos-repartidores" data-help="terminos-repartidores">Términos para repartidores</a> y la <a href="./#ayuda/privacidad" data-help="privacidad">Política de privacidad</a>. <a href="./#ayuda/repartidores" data-help="repartidores">Ver requisitos</a></p>
       <p class="auth-switch">¿Solo quieres pedir comida? <a href="./" data-pick="cliente">Entra como cliente</a></p>
     </div>`;
     return `<div class="auth">
@@ -1381,6 +1528,7 @@
       <h3>${biz ? "Entra a tu negocio" : "Tu cuenta OnRoute"}</h3>
       <p>${biz ? "Registra tu food truck o restaurante, sube tu menú con fotos y recibe pedidos directos, sin comisiones." : "Guarda tus pedidos, tus negocios favoritos y tus datos para pedir más rápido. También puedes pedir sin cuenta."}</p>
       ${authFields()}
+      <p class="hint legal-note">Al crear tu cuenta aceptas los <a href="./#ayuda/terminos" data-help="terminos">Términos de uso</a> y la <a href="./#ayuda/privacidad" data-help="privacidad">Política de privacidad</a>.${biz ? ` <a href="./#ayuda/negocios" data-help="negocios">Guía para negocios</a>` : ""}</p>
       <p class="auth-switch">${biz ? `¿Solo quieres pedir comida? <a href="./" data-pick="cliente">Entra como cliente</a>` : `¿Tienes un food truck o restaurante? <a href="./#panel" data-pick="negocio">Entra a OnRoute Negocios</a>`}</p>
     </div>`;
   }
@@ -2243,15 +2391,17 @@ Reglas:
     if (!S.authReady || (S.user && !S.profileReady)) { v.innerHTML = `<div class="panel">${head}<div class="empty-box">Cargando…</div></div>`; return; }
     if (!S.user) { S.authRole = S.authRole || "business"; v.innerHTML = `<div class="panel">${head}<div class="p-auth scroll">${authHTML()}</div></div>`; return; }
     if (!S.isAdmin) { v.innerHTML = `<div class="panel">${head}<div class="p-auth"><div class="auth"><h3>Sin acceso</h3><p>Esta sección es solo para el administrador de OnRoute.</p><a class="btn sec" href="./" data-nav="home">Volver al inicio</a></div></div></div>`; return; }
-    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["drv", "Repartidores", I.car], ["dlv", "Entregas", I.pin], ["cli", "Clientes", I.prof], ["tools", "Herramientas", I.adm]];
+    const tabs = [["sum", "Resumen", I.rep], ["biz", "Negocios", I.menu], ["drv", "Repartidores", I.car], ["dlv", "Entregas", I.pin], ["cli", "Clientes", I.prof], ["sup", "Soporte", I.help], ["tools", "Herramientas", I.adm]];
     if (v.dataset.built !== "1") {
       v.dataset.built = "1";
       v.innerHTML = `<div class="panel">${head}<div class="pbody"><div class="kpanel scroll narrow" id="aBody"></div>
-        <nav class="knav" id="aNav" role="tablist" aria-label="Administración" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-admtab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "biz" ? '<i class="badge" id="pendBadge" hidden></i>' : ""}</button>`).join("")}</nav></div></div>`;
+        <nav class="knav" id="aNav" role="tablist" aria-label="Administración" style="--n:${tabs.length}">${tabs.map(t => `<button role="tab" data-admtab="${t[0]}">${t[2]}<span>${t[1]}</span>${t[0] === "biz" ? '<i class="badge" id="pendBadge" hidden></i>' : t[0] === "sup" ? '<i class="badge" id="supBadge" hidden></i>' : ""}</button>`).join("")}</nav></div></div>`;
     }
     $$("#aNav button").forEach(b => b.setAttribute("aria-selected", String(b.dataset.admtab === S.admTab)));
     const pend = S.all.filter(r => r.status === "pending"), pb = $("#pendBadge");
     if (pb) { pb.hidden = !pend.length; pb.textContent = pend.length; }
+    const supOpen = (S.sup || []).filter(x => x.status === "open"), sb = $("#supBadge");
+    if (sb) { sb.hidden = !supOpen.length; sb.textContent = supOpen.length; }
     const el = $("#aBody");
     if (S.admTab === "sum") {
       const act = S.all.filter(r => r.status === "active"), cust = S.users.filter(u => u.role !== "business");
@@ -2305,6 +2455,18 @@ Reglas:
           <div style="min-width:0"><b>${esc(x.rname)} · #${esc(x.num)}</b><span>${esc(lab[x.status] || x.status)}${x.driverName ? " · " + esc(x.driverName) : ""} · ${x.miles ? x.miles.toFixed(1) + " mi" : ""} · ${ago(x.createdAt || 0)}</span>
             <span>Envío ${money(x.fee || 0)} · propina ${money(x.tip || 0)} · al repartidor ${money(x.driverPay || 0)}${x.status === "delivered" ? ` · pago: ${x.payout === "paid" ? "hecho" : "pendiente"}${x.payoutErr ? " (" + esc(x.payoutErr) + ")" : ""}` : ""}</span></div>
           <div class="acts">${x.status === "searching" && Date.now() - (x.createdAt || 0) > 20 * 60000 ? `<span class="chip">Más de 20 min sin repartidor</span>` : ""}</div></div>`).join("")}</div>`;
+    } else if (S.admTab === "sup") {
+      const L3 = (S.sup || []).slice().sort((a, b) => (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) || num(b.createdAt) - num(a.createdAt));
+      el.innerHTML = `<div class="ptitle"><h3>Soporte</h3><p>Reportes que mandan clientes, negocios y repartidores desde <i>Contacto y soporte</i>. Respóndeles aquí: la respuesta les aparece en la app.</p></div>
+        <div class="tiles three"><div class="tile t-red"><b class="mono">${supOpen.length}</b><small>Abiertos</small></div><div class="tile t-blue"><b class="mono">${L3.filter(x => x.status !== "open").length}</b><small>Resueltos</small></div><div class="tile t-gold"><b class="mono">${L3.filter(x => num(x.createdAt) >= todayStart()).length}</b><small>Hoy</small></div></div>
+        <div class="kcard">${!S.supReady ? `<div class="empty">Cargando…</div>` : !L3.length ? `<div class="empty">No hay reportes. 🎉</div>` : L3.map(x => `<div class="sup-row ${x.status === "open" ? "open" : ""}">
+          <div class="sup-h"><b>${esc(SUP_TOPICS[x.topic] || x.topic)}${x.ref ? " · pedido " + esc(x.ref) : ""}</b><span class="chip cdot ${x.status === "open" ? "closed" : "open"}">${x.status === "open" ? "Abierto" : "Resuelto"}</span></div>
+          <span class="hint">${esc(x.name || "")} · ${x.email ? `<a href="mailto:${esc(x.email)}">${esc(x.email)}</a>` : "sin correo"} · ${esc(x.mode || "")} · ${ago(num(x.createdAt))}${x.uid ? "" : " · invitado"}</span>
+          <p class="sup-msg">${esc(x.msg)}</p>
+          ${x.reply ? `<p class="sup-reply"><b>Tu respuesta:</b> ${esc(x.reply)}</p>` : ""}
+          ${x.status === "open" ? `<textarea id="supR-${esc(x.id)}" rows="2" maxlength="2000" placeholder="Escribe una respuesta (opcional)"></textarea>
+            <div class="acts"><button class="btn sm green" data-supdone="${esc(x.id)}" data-st="done">Responder y marcar resuelto</button></div>`
+          : `<div class="acts"><button class="btn sm sec" data-supdone="${esc(x.id)}" data-st="open">Reabrir</button></div>`}</div>`).join("")}</div>`;
     } else if (S.admTab === "cli") {
       const list = S.users.slice().sort((a, b) => num(b.createdAt) - num(a.createdAt));
       el.innerHTML = `<div class="ptitle"><h3>Usuarios registrados</h3><p>${list.filter(u => u.role !== "business").length} clientes · ${list.filter(u => u.role === "business").length} negocios</p></div>
@@ -2341,6 +2503,14 @@ Reglas:
     const t = e.target.closest("a,button,[data-act]");
     if (!t) return;
     const d = t.dataset;
+    if (d.act === "menu") { S.drawer ? closeDrawer() : openDrawer(); return; }
+    if (t.closest("#drawer")) closeDrawer();
+    if (d.help !== undefined) { e.preventDefault(); go("help", d.help); return; }
+    if (d.act === "install") { installApp(); return; }
+    if (d.act === "share") { shareApp(); return; }
+    if (d.act === "sup") { sendSupport(); return; }
+    if (d.act === "supnew") { S.supSent = false; paintSupport(); return; }
+    if (d.supdone) { supUpdate(d.supdone, d.st); return; }
     if (d.pick) { e.preventDefault(); setMode(d.pick); return; }
     if (d.chat) {
       const oid = d.chat, r = S.route.name;
@@ -2506,11 +2676,13 @@ Reglas:
     if (t.id === "loyOn") { prEnsure(); S.pr.loyalty.on = t.checked; prTouch(); paint(renderPromos); return; }
   });
   document.addEventListener("click", e => {
+    if (e.target && e.target.id === "drawer") { closeDrawer(); return; }
     if (e.target && e.target.id === "chatSheet") { S.chat = null; renderChat(); chatRepaint(); return; }
     if (e.target && e.target.closest && e.target.closest("#toast") && S.toastChat) { const t = S.toastChat, b = document.querySelector(`[data-chat="${t.oid}"]`); S.toastChat = null; if (b) { b.dataset.ch = t.ch; b.click(); } }
   });
   document.addEventListener("submit", e => { if (e.target.dataset && e.target.dataset.chatform) { e.preventDefault(); chatSend(($("#chatIn") || {}).value); } });
   document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && S.drawer) { closeDrawer(); const b = $("#menuBtn"); if (b) b.focus(); return; }
     if (e.key === "Escape" && S.chat) { S.chat = null; renderChat(); chatRepaint(); return; }
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
     if (e.key === "Enter" && e.target.id === "dlvAddr") { e.preventDefault(); const b = $("#dlvSug [data-sug='0']"); if (b) b.click(); }
