@@ -11,6 +11,11 @@
 [build.environment]
   NODE_VERSION = "22"
   AWS_LAMBDA_JS_RUNTIME = "nodejs22.x"
+  # La llave web de Firebase (AIza...) es PÚBLICA por diseño: va en la página y la protegen las reglas de
+  # Firestore y App Check. Se le avisa al detector de secretos de Netlify para que no detenga la publicación.
+  # Las llaves secretas de verdad (Stripe, cuenta de servicio) siguen solo en las variables de entorno de Netlify.
+  SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = "AIzaSyC-O4XHIYUztEKw9Yr2VZjU34sKK6r8HpM"
+  SECRETS_SCAN_OMIT_PATHS = "firebase-config.js"
 
 [functions]
   node_bundler = "esbuild"
