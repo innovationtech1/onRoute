@@ -459,6 +459,7 @@
         const dprev = S.mine && S.mine.id === id && S.mine.delivery ? S.mine.delivery.status : null;
         S.mine = d.exists ? { id: d.id, ...d.data() } : null; S.mineReady = true;
         if (S.mine && !S.mine.delivery && S.mine.status === "ready" && prev && prev !== "ready") readyAlert(S.mine);
+        if (S.mine && !["pending", "cancelled"].includes(S.mine.status)) chatWatch(rid, id, S.mine.delivery ? ["cb", "dc"] : ["cb"], "customer");
         if (S.mine && S.mine.delivery) {
           const ds = S.mine.delivery.status;
           if (["searching", "assigned", "picked"].includes(ds) && !mineDlvUnsub) mineDlvUnsub = db.doc(`deliveries/${id}`).onSnapshot(x => { S.mineDlv = x.exists ? x.data() : null; paint(renderRest); }, () => {});
@@ -712,6 +713,7 @@
       ${ds === "delivered" ? "" : notifyHTML({ ...o, status: "prep" }).replace(/cuando esté listo/g, "cuando vaya en camino y cuando llegue")}
       ${(ds === "assigned" || ds === "picked") ? `<div class="dlv-map" id="dlvMap"></div>${live && live.driverLoc ? `<p class="hint">Ubicación del repartidor ${ago(live.driverLoc.t || Date.now())}.</p>` : `<p class="hint">Verás al repartidor en el mapa cuando comparta su ubicación.</p>`}` : ""}
       <ol class="steps">${steps.map((x, i) => { const done = i < idx || (i === 4 && idx === 4); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${x[0]}</b><small>${esc(x[1])}</small></div></li>`; }).join("")}</ol>
+      ${ds !== "delivered" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Negocio")}${ds === "picked" ? chatBtn(o.id, "dc", "customer", "Repartidor", "hot") : ""}</div>` : ""}
       <div class="onote"><b>Entrega en:</b> ${esc(D.address)}${D.unit ? " · " + esc(D.unit) : ""}</div>
       <div class="points"><span>Comida ${money(o.food || 0)} · envío ${money(D.fee)}${D.tip ? ` · propina ${money(D.tip)}` : ""}</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
@@ -744,6 +746,7 @@
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Pagas al recoger"}</span></div>
       ${notifyHTML(o)}
       <ol class="steps">${steps.map((s, i) => { const done = i < idx || (i === 2 && idx >= 2); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`; }).join("")}</ol>
+      ${st !== "done" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Escribir al negocio")}</div>` : ""}
       ${o.note ? `<div class="onote"><b>Tu nota:</b> ${esc(o.note)}</div>` : ""}
       ${o.promo ? `<div class="promo-hint">${I.tag}<span>${esc(o.promo.title || "Promoción")}: ahorraste <b class="mono">${money(o.promo.off)}</b></span></div>` : ""}
       ${o.reward ? `<div class="reward">${I.gift}<span><b>Premio de cliente frecuente:</b> ${esc(o.reward)}. Recógelo con tu pedido.</span></div>` : ""}
@@ -1063,16 +1066,19 @@
     let cur = "";
     if (D.current && C && ["assigned", "picked"].includes(C.status)) {
       const P = C.pickup || {};
+      setTimeout(() => chatWatch(C.rid, C.id, C.status === "picked" ? ["db", "dc"] : ["db"], "driver"), 0);
       cur = C.status === "assigned" ? `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 1 de 2 · Recoger</span><b class="mono">${money(C.driverPay)}</b></div>
           <h3>${esc(C.rname)}</h3><p class="hint">${esc(P.address || "")}${P.phone ? " · " + esc(P.phone) : ""}</p>
           <div class="dkit ${C.kitchen === "ready" ? "ok" : ""}">${C.kitchen === "ready" ? "✓ " : "⏳ "}${kitchenTxt(C.kitchen)} · Pedido <b class="mono">#${esc(C.num)}</b> · ${C.items || ""} producto(s)</div>
           <div class="sg-btns"><a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(P.lat, P.lng)}">${I.pin} Cómo llegar</a>${P.phone ? `<a class="btn sec" href="tel:${esc(P.phone.replace(/[^\d+]/g, ""))}">Llamar al negocio</a>` : ""}</div>
+          <div class="chat-row">${chatBtn(C.id, "db", "driver", "Escribir al negocio")}</div>
           <button class="btn green big" data-dact="picked" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Ya recogí el pedido #${esc(C.num)}</button>
           <button class="linkbtn" data-dact="release" data-id="${esc(C.id)}">No puedo hacerla · soltar entrega</button></div>`
         : `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 2 de 2 · Entregar</span><b class="mono">${money(C.driverPay)}</b></div>
           <h3>${esc(Inf.name || "Cliente")}</h3><p><b>${esc(Inf.address || "")}</b>${Inf.unit ? `<br>${esc(Inf.unit)}` : ""}</p>
           ${Inf.notes ? `<div class="onote"><b>Indicaciones:</b> ${esc(Inf.notes)}</div>` : ""}
           <div class="sg-btns">${Inf.lat ? `<a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(Inf.lat, Inf.lng)}">${I.pin} Cómo llegar</a>` : ""}${Inf.phone ? `<a class="btn sec" href="tel:${esc(String(Inf.phone).replace(/[^\d+]/g, ""))}">Llamar al cliente</a>` : ""}</div>
+          <div class="chat-row">${chatBtn(C.id, "dc", "driver", "Escribir al cliente", "hot")}${chatBtn(C.id, "db", "driver", "Negocio")}</div>
           <button class="btn green big" data-dact="delivered" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Entregué el pedido</button></div>`;
     }
     const list = (S.avail || []).map(x => ({ ...x, away: me && x.pickup ? miles(me, x.pickup) * DLV.roadFactor : null })).sort((a, b) => (a.away ?? 99) - (b.away ?? 99));
@@ -1093,6 +1099,73 @@
     return `<h4>Tus datos</h4><dl class="dsum"><dt>Nombre</dt><dd>${esc(D.name)}</dd><dt>Teléfono</dt><dd>${esc(D.phone)}</dd>
       <dt>Auto</dt><dd>${esc([V.make, V.model, V.year].filter(Boolean).join(" "))} · ${esc(V.color || "")} · <span class="mono">${esc(V.plate || "")}</span></dd>
       <dt>Licencia</dt><dd>Vence ${esc(D.licenseExpires || "")}${days < 0 ? ` · <b class="bad-t">vencida</b>` : ""}</dd></dl>`;
+  }
+  // ---------------------------------------------------------------- mensajes del pedido (chat)
+  // Canales: cb = cliente↔negocio, db = repartidor↔negocio, dc = repartidor↔cliente (después de recoger).
+  const CHAT_WITH = { cb: { customer: "el negocio", business: "el cliente" }, db: { business: "el repartidor", driver: "el negocio" }, dc: { customer: "el repartidor", driver: "el cliente" } };
+  const CHAT_TAB = { cb: { customer: "Negocio", business: "Cliente" }, db: { business: "Repartidor", driver: "Negocio" }, dc: { customer: "Repartidor", driver: "Cliente" } };
+  const QUICK = {
+    customer: { cb: ["¿Cuánto falta?", "Ya voy en camino", "¡Gracias!"], dc: ["¿Cuánto falta?", "Estoy afuera", "Déjalo en la puerta, por favor"] },
+    business: { cb: ["Tu pedido ya está listo", "Tardamos unos 10 minutos más", "Se nos acabó un producto, ¿te lo cambiamos?"], db: ["Ya está listo, pasa por él", "Faltan 5 minutos", "Te lo damos en la ventanilla"] },
+    driver: { db: ["Voy en camino", "Ya llegué", "¿Ya está listo?"], dc: ["Voy en camino con tu pedido", "Ya llegué", "Estoy afuera"] },
+  };
+  const chatSubs = {}, chatData = {}, chatLoaded = {};
+  const ckey = (oid, ch) => `${oid}:${ch}`;
+  const seenK = (oid, ch, role) => `onroute-seen-${role}-${oid}-${ch}`;
+  function chatWatch(rid, oid, chs, role) {
+    chs.forEach(ch => {
+      const k = ckey(oid, ch); if (chatSubs[k]) return;
+      chatSubs[k] = db.collection(`restaurants/${rid}/orders/${oid}/msgs`).where("ch", "==", ch).onSnapshot(sn => {
+        const before = (chatData[k] || []).length;
+        chatData[k] = sn.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => (a.at || 0) - (b.at || 0));
+        const last = chatData[k][chatData[k].length - 1];
+        if (chatLoaded[k] && chatData[k].length > before && last && last.from !== role) {
+          const viewing = S.chat && S.chat.oid === oid && S.chat.ch === ch && !document.hidden;
+          if (viewing) ls.set(seenK(oid, ch, role), last.at || Date.now());
+          else { chime(); try { navigator.vibrate && navigator.vibrate(150); } catch (e) {} toast(`💬 ${last.name || CHAT_TAB[ch][role]}: ${String(last.text).slice(0, 60)}`); }
+        }
+        chatLoaded[k] = true; chatRepaint();
+      }, e => { console.warn("OnRoute: mensajes", e); chatLoaded[k] = true; });
+    });
+  }
+  function chatUnwatch(keep) { Object.keys(chatSubs).forEach(k => { if (!keep.has(k.split(":")[0])) { try { chatSubs[k](); } catch (e) {} delete chatSubs[k]; delete chatData[k]; delete chatLoaded[k]; } }); }
+  const unread = (oid, ch, role) => { const seen = Number(ls.get(seenK(oid, ch, role), 0)) || 0; return (chatData[ckey(oid, ch)] || []).filter(m => m.from !== role && (m.at || 0) > seen).length; };
+  const unreadAll = (oid, chs, role) => chs.reduce((n, ch) => n + unread(oid, ch, role), 0);
+  const badge = n => n ? `<i class="cbadge">${n}</i>` : "";
+  function chatBtn(oid, ch, role, label, extra = "") { return `<button class="btn sec chat-btn ${extra}" data-chat="${esc(oid)}" data-ch="${ch}">💬 ${esc(label)}${badge(unread(oid, ch, role))}</button>`; }
+  function openChat(o) { S.chat = o; S.chatDraft = ""; markSeen(); renderChat(); setTimeout(() => { const i = $("#chatIn"); if (i && matchMedia("(pointer:fine)").matches) i.focus(); const l = $("#chatList"); if (l) l.scrollTop = l.scrollHeight; }, 30); }
+  function markSeen() { const c = S.chat; if (!c) return; const m = chatData[ckey(c.oid, c.ch)] || []; ls.set(seenK(c.oid, c.ch, c.role), m.length ? m[m.length - 1].at || Date.now() : Date.now()); }
+  function chatRepaint() {
+    if (S.chat) { markSeen(); renderChat(); }
+    const n = S.route.name;
+    if (n === "rest") paint(renderRest); else if (n === "driver") paint(renderDriver); else if (n === "panel" && S.ktab === "orders") paint(renderOrders);
+  }
+  function renderChat() {
+    let el = $("#chatSheet");
+    if (!S.chat) { if (el) el.remove(); return; }
+    if (!el) { el = document.createElement("div"); el.id = "chatSheet"; el.className = "chat-sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el); }
+    const c = S.chat, msgs = chatData[ckey(c.oid, c.ch)] || [], dark = c.role !== "customer";
+    el.classList.toggle("dark", dark);
+    const fmtT = t => new Date(t || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const list = msgs.length ? msgs.map(m => `<div class="cmsg ${m.from === c.role ? "me" : ""}"><span>${esc(m.text)}</span><small>${m.from === c.role ? "Tú" : esc(m.name || CHAT_TAB[c.ch][c.role])} · ${fmtT(m.at)}</small></div>`).join("")
+      : `<p class="hint cempty">Escríbele a ${CHAT_WITH[c.ch][c.role]}. Los mensajes llegan al instante.</p>`;
+    const keepDraft = ($("#chatIn") || {}).value ?? S.chatDraft ?? "", hadFocus = document.activeElement && document.activeElement.id === "chatIn";
+    el.innerHTML = `<div class="chat-box">
+      <div class="chat-h"><div><b>${esc(c.title || "Mensajes")}</b><small>Pedido #${esc(c.num || "")}</small></div><button class="chat-x" data-act="chatclose" aria-label="Cerrar">✕</button></div>
+      ${c.chs.length > 1 ? `<div class="chat-tabs">${c.chs.map(ch => `<button data-chtab="${ch}" aria-pressed="${ch === c.ch}">${CHAT_TAB[ch][c.role]}${ch === c.ch ? "" : badge(unread(c.oid, ch, c.role))}</button>`).join("")}</div>` : ""}
+      <div class="chat-list" id="chatList">${list}</div>
+      <div class="chat-quick">${(QUICK[c.role][c.ch] || []).map(q => `<button data-quick="${esc(q)}">${esc(q)}</button>`).join("")}</div>
+      <form class="chat-in" data-chatform="1"><input id="chatIn" maxlength="500" autocomplete="off" placeholder="Escribe un mensaje…" value="${esc(keepDraft)}"><button class="btn" type="submit">Enviar</button></form>
+    </div>`;
+    const l = $("#chatList"); if (l) l.scrollTop = l.scrollHeight;
+    if (hadFocus) { const i = $("#chatIn"); if (i) { i.focus(); const n = i.value.length; try { i.setSelectionRange(n, n); } catch (e) {} } }
+  }
+  async function chatSend(text) {
+    const c = S.chat; text = String(text || "").trim().slice(0, 500); if (!c || !text) return;
+    const name = c.role === "business" ? (S.my ? S.my.name : "Negocio") : c.role === "driver" ? String((S.drv && S.drv.name) || "Repartidor").split(" ")[0] : String((S.mine && S.mine.who) || S.name || "Cliente");
+    S.chatDraft = ""; const i = $("#chatIn"); if (i) i.value = "";
+    try { await db.collection(`restaurants/${c.rid}/orders/${c.oid}/msgs`).doc().set({ ch: c.ch, from: c.role, name: name.slice(0, 40), text, at: Date.now() }); }
+    catch (e) { console.error("OnRoute: enviar mensaje", e); toast(e && e.code === "permission-denied" ? "Ya no se pueden mandar mensajes en este pedido." : "No se pudo enviar. Revisa tu conexión."); if (i) i.value = text; }
   }
   function renderWelcome() {
     const v = $("#vWelcome");
@@ -1382,10 +1455,12 @@
     renderChart(today);
     const cols = [["new", "Nuevos"], ["prep", "En preparación"], ["ready", "Listos"]], act = { new: "Empezar", prep: "Marcar listo", ready: "Entregado" };
     const active = S.orders.filter(o => ["new", "prep", "ready"].includes(o.status));
+    active.forEach(o => chatWatch(S.my.id, o.id, o.delivery ? ["cb", "db"] : ["cb"], "business"));
+    if (!S.chat) chatUnwatch(new Set(active.map(o => o.id)));
     $("#board").innerHTML = cols.map(([k, l]) => { const list = active.filter(o => o.status === k).sort((a, b) => a.createdAt - b.createdAt); return `
       <div class="col"><h3><span>${l}</span><span class="mono">${list.length}</span></h3>
       ${list.length ? list.map(o => `<div class="order ${k}">
-        <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small></div>
+        <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small><button class="o-chat" data-chat="${esc(o.id)}" data-ch="cb" aria-label="Mensajes del pedido">💬${badge(unreadAll(o.id, o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"], "business"))}</button></div>
         <ul>${(o.items || []).map(it => `<li>${num(Number(it.qty))} × ${esc(it.name)}</li>`).join("")}</ul>
         ${o.note ? `<div class="onote"><b>Nota:</b> ${esc(o.note)}</div>` : ""}
         ${o.promo ? `<div class="onote promo"><b>Promo:</b> ${esc(o.promo.title || "")}${o.promo.code ? " · código " + esc(o.promo.code) : ""} · −${money(o.promo.off)}</div>` : ""}
@@ -2258,6 +2333,17 @@ Reglas:
     if (!t) return;
     const d = t.dataset;
     if (d.pick) { e.preventDefault(); setMode(d.pick); return; }
+    if (d.chat) {
+      const oid = d.chat, r = S.route.name;
+      if (r === "panel") { const o = S.orders.find(x => x.id === oid); if (!o) return; const chs = o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"];
+        openChat({ rid: S.my.id, oid, role: "business", chs, ch: chs.find(ch => unread(oid, ch, "business")) || d.ch || "cb", num: o.num, title: o.who }); }
+      else if (r === "driver") { const C = S.cur; if (!C) return; const chs = C.status === "picked" ? ["dc", "db"] : ["db"]; openChat({ rid: C.rid, oid, role: "driver", chs, ch: d.ch, num: C.num, title: d.ch === "dc" ? "Cliente" : C.rname }); }
+      else { const o = S.mine; if (!o) return; const chs = o.delivery && o.delivery.status === "picked" ? ["dc", "cb"] : ["cb"]; openChat({ rid: S.rid, oid, role: "customer", chs, ch: d.ch, num: o.num, title: S.R ? S.R.name : "Mensajes" }); }
+      return;
+    }
+    if (d.chtab) { S.chat.ch = d.chtab; markSeen(); renderChat(); chatRepaint(); return; }
+    if (d.quick) { chatSend(d.quick); return; }
+    if (d.act === "chatclose") { S.chat = null; renderChat(); chatRepaint(); return; }
     if (d.nav) { e.preventDefault(); go(d.nav); return; }
     if (d.rest) { e.preventDefault(); go("rest", d.rest); return; }
     if (d.copy) { const v = d.copy; (navigator.clipboard ? navigator.clipboard.writeText(v) : Promise.reject()).then(() => toast("Enlace copiado.")).catch(() => toast(v)); return; }
@@ -2370,6 +2456,7 @@ Reglas:
     const t = e.target, d = t.dataset;
     if (t.id === "nameInput") { S.name = t.value; return; }
     if (t.id === "noteInput") { S.note = t.value; return; }
+    if (t.id === "chatIn") { S.chatDraft = t.value; return; }
     if (t.id === "dlvAddr") { S.dlv = { ...(S.dlv || {}), address: t.value }; delete S.dlv.lat; delete S.dlv.lng; addrSearch(t.value); return; }
     if (d.dlv) { S.dlv = { ...(S.dlv || {}), [d.dlv]: t.value }; return; }
     if (t.id === "promoInput") { S.promoInput = t.value; return; }
@@ -2409,7 +2496,10 @@ Reglas:
     if (t.id === "aiIn") { onMenuPhotos(t); return; }
     if (t.id === "loyOn") { prEnsure(); S.pr.loyalty.on = t.checked; prTouch(); paint(renderPromos); return; }
   });
+  document.addEventListener("click", e => { if (e.target && e.target.id === "chatSheet") { S.chat = null; renderChat(); chatRepaint(); } });
+  document.addEventListener("submit", e => { if (e.target.dataset && e.target.dataset.chatform) { e.preventDefault(); chatSend(($("#chatIn") || {}).value); } });
   document.addEventListener("keydown", e => {
+    if (e.key === "Escape" && S.chat) { S.chat = null; renderChat(); chatRepaint(); return; }
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
     if (e.key === "Enter" && e.target.id === "dlvAddr") { e.preventDefault(); const b = $("#dlvSug [data-sug='0']"); if (b) b.click(); }
     if (e.key === "Enter" && e.target.id === "promoInput") { e.preventDefault(); const b = $("[data-act=promo]"); if (b) b.click(); }

@@ -226,6 +226,27 @@ service cloud.firestore {
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status'])
           && request.resource.data.status in ['new','prep','ready','done'];
         allow delete: if isOwnerOf(rid);
+
+        // Mensajes del pedido. Canales: cb = cliente↔negocio, db = repartidor↔negocio, dc = repartidor↔cliente.
+        // El cliente entra con el número interno del pedido (igual que para seguirlo); los canales con el
+        // repartidor solo existen en entregas a domicilio. Se puede escribir durante 6 horas después del pedido.
+        match /msgs/{mid} {
+          function ord() { return get(/databases/$(database)/documents/restaurants/$(rid)/orders/$(oid)).data; }
+          function dlvPath() { return /databases/$(database)/documents/deliveries/$(oid); }
+          function isDrv() { return signedIn() && exists(dlvPath()) && get(dlvPath()).data.driverUid == request.auth.uid; }
+          function picked() { return exists(dlvPath()) && get(dlvPath()).data.status == 'picked'; }
+          allow read: if resource.data.ch in ['cb','dc']
+            || (resource.data.ch == 'db' && (isOwnerOf(rid) || isDrv() || isAdmin()));
+          allow create: if request.resource.data.keys().hasOnly(['ch','from','name','text','at'])
+            && request.resource.data.text is string && request.resource.data.text.size() >= 1 && request.resource.data.text.size() <= 500
+            && request.resource.data.name is string && request.resource.data.name.size() <= 40
+            && request.resource.data.at is number
+            && ord().createdAt > request.time.toMillis() - 21600000
+            && ((request.resource.data.from == 'customer' && (request.resource.data.ch == 'cb' || (request.resource.data.ch == 'dc' && picked())))
+              || (request.resource.data.from == 'business' && isOwnerOf(rid) && request.resource.data.ch in ['cb','db'])
+              || (request.resource.data.from == 'driver' && isDrv() && (request.resource.data.ch == 'db' || (request.resource.data.ch == 'dc' && picked()))));
+          allow update, delete: if false;
+        }
       }
     }
 
