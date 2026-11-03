@@ -148,6 +148,8 @@ function restPos(r) {
 async function payDriver(ref, d) {
   if (!d || d.payout === "paid" || !(d.driverPay > 0)) return "skip";
   const ds = await db().doc(`drivers/${d.driverUid}`).get(), D = ds.exists ? ds.data() : null;
+  // Repartidor que cobra por Cash App, Zelle o Venmo: queda "por pagar" y el administrador se lo manda a mano.
+  if (D && D.payout && D.payout.method === "manual") { if (d.payout !== "manual") await ref.update({ payout: "manual", payoutApp: D.payout.app || "", payoutErr: null }); return "manual"; }
   if (!D || !D.stripeAccount) { await ref.update({ payout: "pending", payoutErr: "El repartidor no ha conectado su banco." }); return "pending"; }
   try {
     const t = await stripe().transfers.create({ amount: Math.round(d.driverPay * 100), currency: "usd", destination: D.stripeAccount, transfer_group: `onroute-${ref.id}`,

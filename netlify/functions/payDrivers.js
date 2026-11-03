@@ -7,7 +7,7 @@ exports.handler = async () => {
   let paid = 0, pending = 0;
   for (const doc of snap.docs) {
     const r = await payDriver(doc.ref, doc.data());
-    if (r === "paid") paid++; else if (r === "pending") pending++;
+    if (r === "paid") paid++; else if (r === "pending") pending++; // "manual": lo paga el administrador
   }
   console.log(`payDrivers: ${paid} pagadas, ${pending} pendientes`);
   return { statusCode: 200, body: JSON.stringify({ paid, pending }) };

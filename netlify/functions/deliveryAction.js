@@ -15,7 +15,8 @@ exports.handler = handler("deliveryAction", async (body, event) => {
   const ref = db().doc(`deliveries/${id}`);
 
   if (action === "accept") {
-    if (!D.stripeReady) return [409, { error: "Conecta tu banco con Stripe antes de aceptar entregas." }];
+    const manual = D.payout && D.payout.method === "manual" && D.payout.handle;
+    if (!D.stripeReady && !manual) return [409, { error: "Elige cómo recibir tu dinero (banco, Cash App, Zelle o Venmo) antes de aceptar entregas." }];
     if (D.current && D.current !== id) {
       const cur = await db().doc(`deliveries/${D.current}`).get();
       if (cur.exists && ["assigned", "picked"].includes(cur.data().status) && cur.data().driverUid === user.uid) return [409, { error: "Termina tu entrega actual antes de aceptar otra." }];

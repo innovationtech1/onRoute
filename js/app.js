@@ -825,7 +825,7 @@
       afterAuth();
     });
   }
-  let drvUnsub = null, driversUnsub = null, admDlvUnsub = null;
+  let drvUnsub = null, driversUnsub = null, admDlvUnsub = null, owedUnsub = null;
   function watchDrivers() {
     if (driversUnsub) return;
     driversUnsub = db.collection("drivers").onSnapshot(snap => { S.drivers = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.driversReady = true; if (S.route.name === "admin") paint(renderAdmin); }, e => { console.warn("OnRoute: repartidores", e); S.driversReady = true; });
@@ -864,6 +864,8 @@
     if (n === "welcome") { $("#vWelcome").dataset.built = ""; paint(renderWelcome); }
   }
   // ---------------------------------------------------------------- repartidores
+  const PAY_APPS = { cashapp: ["Cash App", "Tu $cashtag", "Ej. $juanperez"], zelle: ["Zelle", "Correo o teléfono de Zelle", "Ej. 210 555 0123"], venmo: ["Venmo", "Tu usuario de Venmo", "Ej. @juan-perez"] };
+  const manualPay = D => !!(D && D.payout && D.payout.method === "manual" && D.payout.handle);
   const DRV_ATTEST = [
     ["license", "Tengo 18 años o más y mi licencia de manejo está vigente."],
     ["registration", "Mi auto tiene registro y placas vigentes."],
@@ -956,19 +958,29 @@
       html = `<div class="kcard dstate"><div class="dbig">⏳</div><h3>Tu registro está en revisión</h3><p class="hint">Revisamos tu licencia y tus datos, normalmente en 1 o 2 días. Te avisamos cuando estés aprobado.</p></div>
         ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Corregir mis datos</button></div>`}`;
     } else {
-      const I2 = S.drvStripeInfo, ready = D.stripeReady || (I2 && I2.ready), days = licDays(D.licenseExpires);
+      const I2 = S.drvStripeInfo, stripeOk = D.stripeReady || (I2 && I2.ready), ready = stripeOk || manualPay(D), days = licDays(D.licenseExpires);
       setTimeout(drvWatchData, 0);
       const lic = days < 0 ? `<div class="sg-err"><b>Tu licencia venció</b><span>Actualiza tu licencia para seguir repartiendo.</span></div>` : days <= 30 ? `<div class="banner info"><span><b>Tu licencia vence en ${days} día${days === 1 ? "" : "s"}.</b> Actualízala cuando la renueves.</span></div>` : "";
       const mine = I2 && I2.missing ? I2.missing.filter(m => m.who === "user") : [];
       const E = S.drvStripeErr;
-      const cobros = `<div class="kcard"><h4>Cobros</h4>
-          ${ready ? `<div class="sg-ok">✓ Banco conectado · listo para recibir pagos</div><p class="hint">Tus ganancias se depositan con Stripe. Puedes ver tus pagos y retirar al instante desde tu panel de Stripe Express.</p>`
-          : `<p class="hint">Conecta tu cuenta de banco con Stripe para recibir lo que ganes. Stripe te pide tu nombre, fecha de nacimiento, los últimos 4 del SSN y tu banco; también te manda tu formulario 1099 de impuestos.</p>
+      const pm = S.payPick || (manualPay(D) ? "manual" : "stripe"), PD = D.payout || {}, pApp = S.payApp || PD.app || "cashapp";
+      const cobros = `<div class="kcard dpay"><h4>¿Cómo quieres recibir tu dinero?</h4>
+          <div class="choices">
+            <button data-paypick="stripe" aria-pressed="${pm === "stripe"}"><b>Depósito a tu banco</b>Automático con Stripe · retiro al instante</button>
+            <button data-paypick="manual" aria-pressed="${pm === "manual"}"><b>Cash App, Zelle o Venmo</b>OnRoute te paga cada semana</button>
+          </div>
+          ${pm === "stripe" ? (stripeOk ? `<div class="sg-ok">✓ Banco conectado · listo para recibir pagos</div><p class="hint">Tus ganancias se depositan solas al entregar. Puedes retirar al instante desde tu panel de Stripe Express.${manualPay(D) ? " Ahora mismo recibes por " + esc(PAY_APPS[PD.app][0]) + "; toca Usar depósito a mi banco para cambiar." : ""}</p>${manualPay(D) ? `<button class="btn sec sm" data-act="payuse" data-m="stripe">Usar depósito a mi banco</button>` : ""}`
+            : `<p class="hint">Stripe te pide tu nombre, fecha de nacimiento, los últimos 4 del SSN y tu banco, y te manda tu formulario 1099 de impuestos. <b>También puedes poner los números de tu cuenta de Cash App</b> (en Cash App: Banca → números de cuenta y ruta) o una tarjeta de débito.</p>
              ${mine.length ? `<div class="sg-box"><b>Stripe todavía necesita:</b><ul class="sg-need">${mine.map(m => { const n = sgNeed(m); return `<li><b>${esc(n.title)}</b>${n.tip ? `<span>${esc(n.tip)}</span>` : ""}</li>`; }).join("")}</ul></div>` : ""}
              ${E ? `<div class="sg-err" role="alert"><b>${esc(E.title)}</b><span>${esc(E.what)}</span>${E.detail ? `<details><summary>Detalle técnico</summary><code>${esc(E.detail)}</code></details>` : ""}</div>` : ""}
-             <div class="sg-btns"><button class="btn" data-act="drvstripe" ${S.drvStripeBusy ? "disabled" : ""}>${S.drvStripeBusy ? "Un momento…" : D.stripeAccount ? "Continuar en Stripe" : "Conectar mi banco"}</button>${D.stripeAccount ? `<button class="btn sec sm" data-act="drvstripechk" ${S.drvStripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}</div>`}
+             <div class="sg-btns"><button class="btn" data-act="drvstripe" ${S.drvStripeBusy ? "disabled" : ""}>${S.drvStripeBusy ? "Un momento…" : D.stripeAccount ? "Continuar en Stripe" : "Conectar mi banco"}</button>${D.stripeAccount ? `<button class="btn sec sm" data-act="drvstripechk" ${S.drvStripeBusy ? "disabled" : ""}>Revisar estado</button>` : ""}</div>`)
+          : `<div class="tips">${Object.entries(PAY_APPS).map(([k, v]) => `<button type="button" data-payapp="${k}" aria-pressed="${pApp === k}">${v[0]}</button>`).join("")}</div>
+             <div class="field"><label for="payHandle">${esc(PAY_APPS[pApp][1])}</label><input id="payHandle" maxlength="60" value="${esc(S.payHandle != null ? S.payHandle : PD.app === pApp ? PD.handle || "" : "")}" placeholder="${esc(PAY_APPS[pApp][2])}"></div>
+             <p class="hint">Tus ganancias se juntan y OnRoute te las manda cada semana por ${esc(PAY_APPS[pApp][0])}. Revisa que el dato esté bien escrito: un error puede mandar tu dinero a otra persona.</p>
+             ${manualPay(D) ? `<div class="sg-ok">✓ Recibes por ${esc(PAY_APPS[PD.app][0])}: ${esc(PD.handle)}</div>` : ""}
+             <button class="btn" data-act="payuse" data-m="manual" ${S.payBusy ? "disabled" : ""}>${S.payBusy ? "Guardando…" : manualPay(D) ? "Guardar cambios" : "Recibir por " + esc(PAY_APPS[pApp][0])}</button>`}
         </div>`;
-      html = `${lic}${ready ? drvOpsHTML(D) + cobros : cobros + `<div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Conecta tu banco (arriba) y aquí podrás conectarte para recibir entregas cerca de ti.</p></div>`}
+      html = `${lic}${ready ? drvOpsHTML(D) + cobros : cobros + `<div class="kcard dsoon"><h4>Entregas</h4><div class="dbig">🚗</div><p><b>¡Ya estás aprobado!</b> Elige cómo recibir tu dinero (arriba) y aquí podrás conectarte para recibir entregas cerca de ti.</p></div>`}
         ${S.drvEdit ? drvFormHTML(true) : `<div class="kcard">${drvSummaryHTML(D)}<button class="btn sec sm" data-act="drvedit">Actualizar mis datos o licencia</button></div>`}`;
     }
     html += `<div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-pick="cliente">${I.food} Pedir comida</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>`;
@@ -1007,6 +1019,21 @@
       if (S.cur && ["assigned", "picked"].includes(S.cur.status)) db.doc(`deliveries/${S.cur.id}`).update({ driverLoc: loc }).catch(() => {});
     }, e => { console.warn("OnRoute: GPS repartidor", e); S.drvGpsErr = "Activa la ubicación de tu celular para recibir entregas."; paint(renderDriver); }, { enableHighAccuracy: true, maximumAge: 10000, timeout: 20000 });
   }
+  async function drvPayUse(m) {
+    const D = S.drv; if (!D) return;
+    let payout;
+    if (m === "stripe") payout = { method: "stripe", app: (D.payout && D.payout.app) || "cashapp", handle: (D.payout && D.payout.handle) || "-" };
+    else {
+      const app = S.payApp || (D.payout && D.payout.app) || "cashapp", h = String(($("#payHandle") || {}).value || "").trim();
+      if (h.length < 3) { toast("Escribe tu " + PAY_APPS[app][1].toLowerCase() + "."); return; }
+      if (app === "cashapp" && !/^\$?[A-Za-z][A-Za-z0-9_-]{0,20}$/.test(h)) { toast("Tu $cashtag no se ve bien. Ej. $juanperez"); return; }
+      payout = { method: "manual", app, handle: (app === "cashapp" && !h.startsWith("$") ? "$" + h : h).slice(0, 60) };
+    }
+    S.payBusy = true; paint(renderDriver);
+    try { await db.doc(`drivers/${S.user.uid}`).update({ payout, updatedAt: Date.now() }); S.payPick = null; S.payHandle = null; toast(m === "manual" ? `Listo: te pagaremos por ${PAY_APPS[payout.app][0]}.` : "Listo: recibirás tus pagos en tu banco."); }
+    catch (e) { console.error(e); toast(e && e.code === "permission-denied" ? "Firebase no dio permiso: publica las reglas nuevas." : "No se pudo guardar. Revisa tu conexión."); }
+    S.payBusy = false; paint(renderDriver);
+  }
   async function drvSetOnline(on) {
     try { await db.doc(`drivers/${S.user.uid}`).update({ online: on, updatedAt: Date.now() }); toast(on ? "Estás en línea. Te avisamos cuando haya entregas." : "Te desconectaste."); }
     catch (e) { console.error(e); toast("No se pudo cambiar. Revisa tu conexión."); }
@@ -1016,7 +1043,7 @@
     if (action === "delivered" && !confirm("¿Entregaste el pedido al cliente?")) return;
     if (action === "release" && !confirm("¿Soltar esta entrega para que la tome otro repartidor?")) return;
     S.drvActBusy = id; paint(renderDriver);
-    try { const j = await payApi("deliveryAction", { id, action }); if (action === "accept") toast("¡Entrega aceptada! Ve al negocio."); if (action === "delivered") toast(j.payout === "paid" ? "¡Entregado! Tu pago ya va en camino a tu cuenta." : "¡Entregado! Tu pago se procesa en las próximas horas."); }
+    try { const j = await payApi("deliveryAction", { id, action }); if (action === "accept") toast("¡Entrega aceptada! Ve al negocio."); if (action === "delivered") toast(j.payout === "paid" ? "¡Entregado! Tu pago ya va en camino a tu cuenta." : j.payout === "manual" ? "¡Entregado! Se suma a tu pago de la semana." : "¡Entregado! Tu pago se procesa en las próximas horas."); }
     catch (e) { toast(String(e.message || "No se pudo.").split(" Detalle:")[0]); }
     S.drvActBusy = null; paint(renderDriver);
   }
@@ -1045,9 +1072,9 @@
           <div class="dav-r"><b class="mono">${money(x.driverPay)}</b><button class="btn green sm" data-dact="accept" data-id="${esc(x.id)}" ${busy ? "disabled" : ""}>Aceptar</button></div></div>`).join("")}</div>`;
     const mine = S.myDlv || [], t0 = todayStart(), wk = t0 - 6 * 86400000;
     const done = mine.filter(x => x.status === "delivered"), today = done.filter(x => (x.deliveredAt || 0) >= t0), week = done.filter(x => (x.deliveredAt || 0) >= wk);
-    const sum = a => a.reduce((n, x) => n + (Number(x.driverPay) || 0), 0), pend = done.filter(x => x.payout === "pending");
+    const sum = a => a.reduce((n, x) => n + (Number(x.driverPay) || 0), 0), pend = done.filter(x => x.payout === "pending" || x.payout === "manual");
     const earn = `<div class="kcard"><h4>Tus ganancias</h4><div class="tiles three"><div class="tile t-green"><b class="mono">${money(sum(today))}</b><small>Hoy · ${today.length} entrega${today.length === 1 ? "" : "s"}</small></div><div class="tile t-blue"><b class="mono">${money(sum(week))}</b><small>Últimos 7 días</small></div><div class="tile t-purple"><b class="mono">${money(sum(pend))}</b><small>Pago en proceso</small></div></div>
-      ${done.length ? `<div class="dhist">${done.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)).slice(0, 8).map(x => `<div><span>${esc(x.rname)} · #${esc(x.num)} · ${ago(x.deliveredAt || 0)}</span><b class="mono">${money(x.driverPay)}</b><em>${x.payout === "paid" ? "Pagado" : "En proceso"}</em></div>`).join("")}</div>` : `<p class="hint">Aquí verás lo que ganas por cada entrega. Los pagos llegan a tu banco con Stripe; puedes retirar al instante desde Stripe Express.</p>`}</div>`;
+      ${done.length ? `<div class="dhist">${done.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)).slice(0, 8).map(x => `<div><span>${esc(x.rname)} · #${esc(x.num)} · ${ago(x.deliveredAt || 0)}</span><b class="mono">${money(x.driverPay)}</b><em>${x.payout === "paid" || x.payout === "paid_manual" ? "Pagado" : x.payout === "manual" ? "Por cobrar" : "En proceso"}</em></div>`).join("")}</div>` : `<p class="hint">Aquí verás lo que ganas por cada entrega. Los pagos llegan a tu banco con Stripe; puedes retirar al instante desde Stripe Express.</p>`}</div>`;
     const online = `<div class="kcard donline ${D.online ? "on" : ""}"><div><b>${D.online ? "Estás en línea" : "Estás desconectado"}</b><span>${D.online ? "Recibes avisos de entregas cerca de ti. Mantén la app abierta." : "Conéctate cuando quieras repartir."}</span>${S.drvGpsErr ? `<span class="err">${esc(S.drvGpsErr)}</span>` : ""}</div>
       <input type="checkbox" class="tgl" id="drvOnline" aria-label="En línea" ${D.online ? "checked" : ""} ${D.current ? "disabled" : ""}></div>`;
     return `${online}${cur}${avail}${earn}`;
@@ -2160,12 +2187,18 @@ Reglas:
     } else if (S.admTab === "drv") {
       const order = { pending: 0, active: 1, suspended: 2 };
       const list = S.drivers.slice().sort((a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3) || num(b.createdAt) - num(a.createdAt));
-      el.innerHTML = `<div class="ptitle"><h3>Repartidores</h3><p>Revisa la licencia y los datos de cada repartidor antes de aprobarlo. Aprobado, puede conectar su banco y recibir entregas.</p></div>
+      if (!owedUnsub) owedUnsub = db.collection("deliveries").where("payout", "==", "manual").onSnapshot(sn => { S.owed = sn.docs.map(x => ({ id: x.id, ...x.data() })); paint(renderAdmin); }, e => { console.warn(e); S.owed = []; });
+      const owed = {}; (S.owed || []).forEach(x => { const o = owed[x.driverUid] = owed[x.driverUid] || { n: 0, sum: 0, ids: [] }; o.n++; o.sum = r2(o.sum + (Number(x.driverPay) || 0)); o.ids.push(x.id); });
+      const dname = id => { const d = S.drivers.find(x => x.id === id); return d ? d : { name: id }; };
+      el.innerHTML = `<div class="ptitle"><h3>Repartidores</h3><p>Revisa la licencia y los datos de cada repartidor antes de aprobarlo. Aprobado, elige cómo cobrar y puede recibir entregas.</p></div>
+        ${Object.keys(owed).length ? `<div class="kcard"><h4>Pagos por enviar (Cash App, Zelle, Venmo)</h4><p class="hint">Mándales este dinero desde tu app y luego toca Marcar pagado. El dinero ya está en la cuenta de Stripe de OnRoute.</p>
+          ${Object.entries(owed).map(([uid, o]) => { const d = dname(uid), P = d.payout || {}; return `<div class="adm-row drow"><span class="rlogo">${I.cash}</span><div style="min-width:0"><b>${esc(d.name || "")} · <span class="mono">${money(o.sum)}</span></b><span>${o.n} entrega${o.n === 1 ? "" : "s"} · ${P.app ? esc(PAY_APPS[P.app][0]) + ": " + esc(P.handle || "") : "sin método"}</span></div>
+            <div class="acts"><button class="btn sm green" data-act="paidman" data-id="${esc(uid)}">Marcar pagado</button></div></div>`; }).join("")}</div>` : ""}
         <div class="kcard">${!S.driversReady ? `<div class="empty">Cargando…</div>` : !list.length ? `<div class="empty">Todavía no hay repartidores registrados.</div>` : list.map(d => { const V = d.vehicle || {}, days = licDays(d.licenseExpires), lic = S.licView && S.licView[d.id];
           return `<div class="adm-row drow"><span class="rlogo">${I.car}</span>
           <div style="min-width:0"><b>${esc(d.name || "")}</b><span>${esc(d.phone || "")} · ${esc(d.email || "")}</span>
             <span>${esc([V.make, V.model, V.year].filter(Boolean).join(" "))} · ${esc(V.color || "")} · ${esc(V.plate || "")}</span>
-            <span>Licencia vence ${esc(d.licenseExpires || "?")}${days < 0 ? " · VENCIDA" : ""} · Banco: ${d.stripeReady ? "conectado" : d.stripeAccount ? "a medias" : "sin conectar"}</span>
+            <span>Licencia vence ${esc(d.licenseExpires || "?")}${days < 0 ? " · VENCIDA" : ""} · Cobra por: ${manualPay(d) ? esc(PAY_APPS[d.payout.app][0]) + " " + esc(d.payout.handle) : d.stripeReady ? "banco (Stripe)" : d.stripeAccount ? "banco (a medias)" : "sin elegir"}</span>
             ${lic ? `<img class="lic-img" src="${esc(lic)}" alt="Licencia de ${esc(d.name || "")}">` : ""}</div>
           <div class="acts">${statusChip(d.status)}<button class="btn sm sec" data-act="licview" data-id="${esc(d.id)}">${lic ? "Ocultar licencia" : "Ver licencia"}</button>
             ${d.status !== "active" ? `<button class="btn sm green" data-admdrv="active" data-id="${esc(d.id)}" ${days < 0 ? "disabled" : ""}>Aprobar</button>` : `<button class="btn sm sec" data-admdrv="suspended" data-id="${esc(d.id)}">Suspender</button>`}</div></div>`; }).join("")}</div>`;
@@ -2271,6 +2304,9 @@ Reglas:
     if (d.act === "stripego") { stripeGo(); return; }
     if (d.act === "drvsave") { drvSave(); return; }
     if (d.dact) { drvAct(d.id, d.dact); return; }
+    if (d.paypick) { S.payPick = d.paypick; paint(renderDriver); return; }
+    if (d.payapp) { S.payApp = d.payapp; S.payHandle = null; paint(renderDriver); return; }
+    if (d.act === "payuse") { drvPayUse(d.m); return; }
     if (d.act === "drvedit") { S.drvEdit = true; S.drvForm = null; S.drvMsg = ""; paint(renderDriver); return; }
     if (d.act === "drvstripe") { drvStripe("start"); return; }
     if (d.act === "drvstripechk") { drvStripe("status"); return; }
@@ -2278,6 +2314,12 @@ Reglas:
       const id = d.id; S.licView = S.licView || {};
       if (S.licView[id]) { delete S.licView[id]; paint(renderAdmin); return; }
       db.doc(`drivers/${id}/docs/license`).get().then(x => { S.licView[id] = x.exists ? safeImg(x.data().data) || "" : ""; if (!S.licView[id]) toast("Este repartidor no subió foto."); paint(renderAdmin); }).catch(() => toast("No se pudo abrir la licencia."));
+      return;
+    }
+    if (d.act === "paidman") {
+      const ids = (S.owed || []).filter(x => x.driverUid === d.id).map(x => x.id), tot = r2((S.owed || []).filter(x => x.driverUid === d.id).reduce((n, x) => n + (Number(x.driverPay) || 0), 0));
+      if (!ids.length || !confirm(`¿Ya le mandaste ${money(tot)}? Se marcarán ${ids.length} entrega(s) como pagadas.`)) return;
+      Promise.all(ids.map(id => db.doc(`deliveries/${id}`).update({ payout: "paid_manual", payoutAt: Date.now() }))).then(() => toast("Pagos marcados.")).catch(e => { console.error(e); toast("No se pudo marcar. Revisa las reglas de Firestore."); });
       return;
     }
     if (d.admdrv) { db.doc(`drivers/${d.id}`).update({ status: d.admdrv }).then(() => toast(d.admdrv === "active" ? "Repartidor aprobado." : "Repartidor suspendido.")).catch(e => { console.error(e); toast("No se pudo cambiar. Revisa las reglas de Firestore."); }); return; }
@@ -2327,6 +2369,7 @@ Reglas:
     if (d.reg) { S.reg[d.reg] = t.value; if (d.reg === "name") { const s = $(".slug"); if (s) s.textContent = `Tu enlace: ${BASE}?r=${slugify(t.value) || "tu-negocio"}`; } return; }
     if (d.pf) { pfEnsure(); S.pf[d.pf] = t.value; S.pfDirty = true; return; }
     if (d.df) { drvEnsure()[d.df] = t.value; return; }
+    if (t.id === "payHandle") { S.payHandle = t.value; return; }
     if (d.ht !== undefined) { pfEnsure(); const day = S.pf.hours[Number(d.ht)]; if (okT(t.value)) { day[d.hk] = t.value; S.pfDirty = true; $("#pfHours").dataset.v = JSON.stringify(S.pf.hours); } return; }
     if (d.cfg) { meEnsure(); S.meCfg[d.cfg] = t.value; t.classList.remove("bad"); meTouch(); return; }
     if (d.xf) { meEnsure(); const k = Number(t.closest(".xrow").dataset.x); S.meExtras[k][d.xf] = t.value; t.classList.remove("bad"); meTouch(); return; }
