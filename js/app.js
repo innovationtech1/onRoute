@@ -617,13 +617,22 @@
           const line1 = [p.housenumber, p.street || p.name].filter(Boolean).join(" "), line2 = [p.city || p.district, p.state, p.postcode].filter(Boolean).join(", ");
           return c ? { label: [line1, line2].filter(Boolean).join(", "), lat: c[1], lng: c[0] } : null; }).filter(Boolean);
       } catch (e) { S.dlvSug = []; }
+      if (!S.dlvSug.length) {
+        try {
+          const r = await fetch(`https://nominatim.openstreetmap.org/search?format=jsonv2&addressdetails=1&limit=5&countrycodes=us&q=${encodeURIComponent(q)}&viewbox=${near.lng - 0.6},${near.lat + 0.6},${near.lng + 0.6},${near.lat - 0.6}`);
+          const j = await r.json(); if (seq !== addrSeq) return;
+          S.dlvSug = (j || []).map(x => ({ label: String(x.display_name || "").split(", ").slice(0, 4).join(", "), lat: Number(x.lat), lng: Number(x.lon) })).filter(x => x.label && !isNaN(x.lat));
+        } catch (e) { S.dlvSug = []; }
+      }
+      S.dlvNoSug = !S.dlvSug.length && q.trim().length >= 6;
       paintSug();
     }, 350);
   }
   function paintSug() {
     const box = $("#dlvSug"); if (!box) return;
     box.innerHTML = (S.dlvSug || []).map((x, i) => `<button type="button" data-sug="${i}">${I.pin}<span>${esc(x.label)}</span></button>`).join("");
-    box.hidden = !(S.dlvSug || []).length;
+    box.hidden = !(S.dlvSug || []).length && !S.dlvNoSug;
+    if (!(S.dlvSug || []).length && S.dlvNoSug) box.innerHTML = `<p class="hint" style="padding:10px 12px;margin:0">No encontramos esa dirección. Escribe calle, número y ciudad (ej. 500 Oak St, San Antonio) o toca <b>Aquí</b> para usar tu ubicación.</p>`;
   }
   function dlvHere() {
     if (!navigator.geolocation) return toast("Este navegador no tiene GPS.");
@@ -685,7 +694,7 @@
         <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}${dl ? `<div class="sub"><span>Comida</span><span class="mono">${money(sub)}</span></div><div class="sub"><span>Envío${q && !q.far ? ` (${q.mi.toFixed(1)} mi)` : ""}</span><span class="mono">${q && !q.far ? money(fee) : "—"}</span></div>${tip ? `<div class="sub"><span>Propina</span><span class="mono">${money(tip)}</span></div>` : ""}` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
-        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
+        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : dl && !q ? "Elige tu dirección de la lista para continuar" : dl && q.far ? "Tu dirección está fuera del área de entrega" : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
         ${S.user ? `<p class="hint" style="text-align:center">Pides como ${esc(S.user.email || "")}. Lo verás en Mis pedidos.</p>` : `<p class="hint" style="text-align:center"><a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para guardar tus pedidos. También puedes pedir sin cuenta.</p>`}
         <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : "Pagas en efectivo o tarjeta al recoger."}</p>
       </div>`;
@@ -2402,6 +2411,7 @@ Reglas:
   });
   document.addEventListener("keydown", e => {
     if (e.key === "Enter" && (e.target.id === "authPass" || e.target.id === "authEmail")) { e.preventDefault(); authAction("login"); }
+    if (e.key === "Enter" && e.target.id === "dlvAddr") { e.preventDefault(); const b = $("#dlvSug [data-sug='0']"); if (b) b.click(); }
     if (e.key === "Enter" && e.target.id === "promoInput") { e.preventDefault(); const b = $("[data-act=promo]"); if (b) b.click(); }
   });
   window.addEventListener("beforeunload", e => { if (S.meDirty || S.prDirty || watchId !== null) { e.preventDefault(); e.returnValue = ""; } });
