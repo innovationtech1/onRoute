@@ -63,7 +63,7 @@
   };
 
   let toastT = null;
-  function toast(msg) { const t = $("#toast"); if (!t) return; t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 5000); }
+  function toast(msg) { const t = $("#toast"); if (!t) return; try { S.toastChat = null; } catch (e) {} t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 5000); }
   function netState() { const nb = $("#netbar"); if (nb) nb.hidden = navigator.onLine !== false; }
   window.addEventListener("online", netState);
   window.addEventListener("offline", netState);
@@ -713,7 +713,7 @@
       ${ds === "delivered" ? "" : notifyHTML({ ...o, status: "prep" }).replace(/cuando esté listo/g, "cuando vaya en camino y cuando llegue")}
       ${(ds === "assigned" || ds === "picked") ? `<div class="dlv-map" id="dlvMap"></div>${live && live.driverLoc ? `<p class="hint">Ubicación del repartidor ${ago(live.driverLoc.t || Date.now())}.</p>` : `<p class="hint">Verás al repartidor en el mapa cuando comparta su ubicación.</p>`}` : ""}
       <ol class="steps">${steps.map((x, i) => { const done = i < idx || (i === 4 && idx === 4); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${x[0]}</b><small>${esc(x[1])}</small></div></li>`; }).join("")}</ol>
-      ${ds !== "delivered" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Negocio")}${ds === "picked" ? chatBtn(o.id, "dc", "customer", "Repartidor", "hot") : ""}</div>` : ""}
+      ${ds !== "delivered" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Negocio")}${ds === "picked" || (chatData[ckey(o.id, "dc")] || []).length ? chatBtn(o.id, "dc", "customer", "Repartidor", "hot") : ""}</div>` : ""}
       <div class="onote"><b>Entrega en:</b> ${esc(D.address)}${D.unit ? " · " + esc(D.unit) : ""}</div>
       <div class="points"><span>Comida ${money(o.food || 0)} · envío ${money(D.fee)}${D.tip ? ` · propina ${money(D.tip)}` : ""}</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
@@ -1109,7 +1109,7 @@
     business: { cb: ["Tu pedido ya está listo", "Tardamos unos 10 minutos más", "Se nos acabó un producto, ¿te lo cambiamos?"], db: ["Ya está listo, pasa por él", "Faltan 5 minutos", "Te lo damos en la ventanilla"] },
     driver: { db: ["Voy en camino", "Ya llegué", "¿Ya está listo?"], dc: ["Voy en camino con tu pedido", "Ya llegué", "Estoy afuera"] },
   };
-  const chatSubs = {}, chatData = {}, chatLoaded = {};
+  const chatSubs = {}, chatData = {}, chatLoaded = {}, chatErr = {};
   const ckey = (oid, ch) => `${oid}:${ch}`;
   const seenK = (oid, ch, role) => `onroute-seen-${role}-${oid}-${ch}`;
   function chatWatch(rid, oid, chs, role) {
@@ -1122,10 +1122,10 @@
         if (chatLoaded[k] && chatData[k].length > before && last && last.from !== role) {
           const viewing = S.chat && S.chat.oid === oid && S.chat.ch === ch && !document.hidden;
           if (viewing) ls.set(seenK(oid, ch, role), last.at || Date.now());
-          else { chime(); try { navigator.vibrate && navigator.vibrate(150); } catch (e) {} toast(`💬 ${last.name || CHAT_TAB[ch][role]}: ${String(last.text).slice(0, 60)}`); }
+          else { chime(); try { navigator.vibrate && navigator.vibrate(150); } catch (e) {} toast(`💬 ${last.name || CHAT_TAB[ch][role]}: ${String(last.text).slice(0, 60)} · toca para responder`); S.toastChat = { oid, ch }; }
         }
-        chatLoaded[k] = true; chatRepaint();
-      }, e => { console.warn("OnRoute: mensajes", e); chatLoaded[k] = true; });
+        chatLoaded[k] = true; delete chatErr[k]; chatRepaint();
+      }, e => { console.warn("OnRoute: mensajes", e); chatLoaded[k] = true; chatErr[k] = (e && e.code) || "error"; delete chatSubs[k]; chatRepaint(); });
     });
   }
   function chatUnwatch(keep) { Object.keys(chatSubs).forEach(k => { if (!keep.has(k.split(":")[0])) { try { chatSubs[k](); } catch (e) {} delete chatSubs[k]; delete chatData[k]; delete chatLoaded[k]; } }); }
@@ -1133,7 +1133,10 @@
   const unreadAll = (oid, chs, role) => chs.reduce((n, ch) => n + unread(oid, ch, role), 0);
   const badge = n => n ? `<i class="cbadge">${n}</i>` : "";
   function chatBtn(oid, ch, role, label, extra = "") { return `<button class="btn sec chat-btn ${extra}" data-chat="${esc(oid)}" data-ch="${ch}">💬 ${esc(label)}${badge(unread(oid, ch, role))}</button>`; }
-  function openChat(o) { S.chat = o; S.chatDraft = ""; markSeen(); renderChat(); setTimeout(() => { const i = $("#chatIn"); if (i && matchMedia("(pointer:fine)").matches) i.focus(); const l = $("#chatList"); if (l) l.scrollTop = l.scrollHeight; }, 30); }
+  function openChat(o) {
+    if (!unread(o.oid, o.ch, o.role)) { const alt = o.chs.find(ch => unread(o.oid, ch, o.role)); if (alt) o.ch = alt; }
+    o.chs.forEach(ch => { if (chatErr[ckey(o.oid, ch)]) { delete chatErr[ckey(o.oid, ch)]; chatWatch(o.rid, o.oid, [ch], o.role); } });
+    S.chat = o; S.chatDraft = ""; markSeen(); renderChat(); setTimeout(() => { const i = $("#chatIn"); if (i && matchMedia("(pointer:fine)").matches) i.focus(); const l = $("#chatList"); if (l) l.scrollTop = l.scrollHeight; }, 30); }
   function markSeen() { const c = S.chat; if (!c) return; const m = chatData[ckey(c.oid, c.ch)] || []; ls.set(seenK(c.oid, c.ch, c.role), m.length ? m[m.length - 1].at || Date.now() : Date.now()); }
   function chatRepaint() {
     if (S.chat) { markSeen(); renderChat(); }
@@ -1144,10 +1147,16 @@
     let el = $("#chatSheet");
     if (!S.chat) { if (el) el.remove(); return; }
     if (!el) { el = document.createElement("div"); el.id = "chatSheet"; el.className = "chat-sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el); }
-    const c = S.chat, msgs = chatData[ckey(c.oid, c.ch)] || [], dark = c.role !== "customer";
+    const c = S.chat;
+    // Los canales se recalculan en vivo (por ejemplo, el chat con el repartidor aparece en cuanto recoge el pedido).
+    if (c.role === "customer" && S.mine && S.mine.id === c.oid) { const ds = S.mine.delivery && S.mine.delivery.status; c.chs = ds === "picked" || (chatData[ckey(c.oid, "dc")] || []).length ? ["dc", "cb"] : ["cb"]; }
+    if (c.role === "driver" && S.cur && S.cur.id === c.oid) c.chs = S.cur.status === "picked" ? ["dc", "db"] : ["db"];
+    if (c.role === "business") { const o = S.orders.find(x => x.id === c.oid); if (o) c.chs = o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"]; }
+    if (!c.chs.includes(c.ch)) c.ch = c.chs[0];
+    const msgs = chatData[ckey(c.oid, c.ch)] || [], dark = c.role !== "customer", err = chatErr[ckey(c.oid, c.ch)];
     el.classList.toggle("dark", dark);
     const fmtT = t => new Date(t || Date.now()).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-    const list = msgs.length ? msgs.map(m => `<div class="cmsg ${m.from === c.role ? "me" : ""}"><span>${esc(m.text)}</span><small>${m.from === c.role ? "Tú" : esc(m.name || CHAT_TAB[c.ch][c.role])} · ${fmtT(m.at)}</small></div>`).join("")
+    const list = err ? `<p class="err cempty">No se pudieron cargar los mensajes (${esc(err)}). Cierra y vuelve a abrir el chat, o recarga la página.</p>` : msgs.length ? msgs.map(m => `<div class="cmsg ${m.from === c.role ? "me" : ""}"><span>${esc(m.text)}</span><small>${m.from === c.role ? "Tú" : esc(m.name || CHAT_TAB[c.ch][c.role])} · ${fmtT(m.at)}</small></div>`).join("")
       : `<p class="hint cempty">Escríbele a ${CHAT_WITH[c.ch][c.role]}. Los mensajes llegan al instante.</p>`;
     const keepDraft = ($("#chatIn") || {}).value ?? S.chatDraft ?? "", hadFocus = document.activeElement && document.activeElement.id === "chatIn";
     el.innerHTML = `<div class="chat-box">
@@ -2338,7 +2347,7 @@ Reglas:
       if (r === "panel") { const o = S.orders.find(x => x.id === oid); if (!o) return; const chs = o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"];
         openChat({ rid: S.my.id, oid, role: "business", chs, ch: chs.find(ch => unread(oid, ch, "business")) || d.ch || "cb", num: o.num, title: o.who }); }
       else if (r === "driver") { const C = S.cur; if (!C) return; const chs = C.status === "picked" ? ["dc", "db"] : ["db"]; openChat({ rid: C.rid, oid, role: "driver", chs, ch: d.ch, num: C.num, title: d.ch === "dc" ? "Cliente" : C.rname }); }
-      else { const o = S.mine; if (!o) return; const chs = o.delivery && o.delivery.status === "picked" ? ["dc", "cb"] : ["cb"]; openChat({ rid: S.rid, oid, role: "customer", chs, ch: d.ch, num: o.num, title: S.R ? S.R.name : "Mensajes" }); }
+      else { const o = S.mine; if (!o) return; const chs = o.delivery && (o.delivery.status === "picked" || (chatData[ckey(oid, "dc")] || []).length) ? ["dc", "cb"] : ["cb"]; openChat({ rid: S.rid, oid, role: "customer", chs, ch: d.ch, num: o.num, title: S.R ? S.R.name : "Mensajes" }); }
       return;
     }
     if (d.chtab) { S.chat.ch = d.chtab; markSeen(); renderChat(); chatRepaint(); return; }
@@ -2496,7 +2505,10 @@ Reglas:
     if (t.id === "aiIn") { onMenuPhotos(t); return; }
     if (t.id === "loyOn") { prEnsure(); S.pr.loyalty.on = t.checked; prTouch(); paint(renderPromos); return; }
   });
-  document.addEventListener("click", e => { if (e.target && e.target.id === "chatSheet") { S.chat = null; renderChat(); chatRepaint(); } });
+  document.addEventListener("click", e => {
+    if (e.target && e.target.id === "chatSheet") { S.chat = null; renderChat(); chatRepaint(); return; }
+    if (e.target && e.target.closest && e.target.closest("#toast") && S.toastChat) { const t = S.toastChat, b = document.querySelector(`[data-chat="${t.oid}"]`); S.toastChat = null; if (b) { b.dataset.ch = t.ch; b.click(); } }
+  });
   document.addEventListener("submit", e => { if (e.target.dataset && e.target.dataset.chatform) { e.preventDefault(); chatSend(($("#chatIn") || {}).value); } });
   document.addEventListener("keydown", e => {
     if (e.key === "Escape" && S.chat) { S.chat = null; renderChat(); chatRepaint(); return; }
