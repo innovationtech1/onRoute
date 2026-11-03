@@ -59,3 +59,13 @@ Stripe → Developers → Webhooks → **Add endpoint**:
 ## Pasar a dinero real
 Activar la cuenta de Stripe de InnovationTECH, cambiar `STRIPE_SECRET_KEY` por la llave `sk_live_...`,
 crear el webhook también en modo real y poner `window.ONROUTE_STRIPE_TEST = false` en `firebase-config.js`.
+
+## Pagos a mano: Zelle, Cash App y efectivo (también combinados)
+
+- El negocio configura en **Perfil → Otras formas de pago**: efectivo al recoger, efectivo al entregar, su Zelle y su $cashtag de Cash App.
+- El cliente elige una forma de pago o **combina dos** (ej. Zelle $10 + efectivo el resto). La tarjeta no se combina.
+- Efectivo al recoger (sin domicilio) se crea directo en Firestore, como siempre.
+- Todo lo demás pasa por la función **createOrder**: calcula el total con los precios reales (con promociones y premio de cliente frecuente) y deja el pedido en `status: "await"`.
+- El negocio ve la columna **Por confirmar** y toca *Pago recibido* / *Aceptar pedido* o *Rechazar* → función **orderAction** (solo el dueño). Al confirmar pasa a `new` y, si es a domicilio, se publica para los repartidores con `collect` (efectivo que cobra el repartidor).
+- Al entregar, `payDriver` no transfiere nada por Stripe: marca `payout: "ledger"` y guarda `settle = { drv: collect − driverPay, biz: prepaid − food }` (positivo = le debe a OnRoute; negativo = OnRoute le debe). La suma es la parte de OnRoute del envío.
+- El administrador ve los saldos en **Admin → Entregas → Saldos de pagos a mano** y toca *Marcar saldado* cuando se pagan.

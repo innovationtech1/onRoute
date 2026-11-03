@@ -1,102 +1,30 @@
 // El cliente paga con tarjeta: se calcula el total con los precios reales del menú,
 // se crea el pedido como "pending" y se abre Stripe Checkout en la cuenta de Stripe del negocio (Connect).
-// El dinero llega directo al negocio y Stripe le cobra a él su comisión; OnRoute no se queda con nada.
-const { db, stripe, handler, userOf, acctStatus, inHours, truckLive, SITE, RID, DELIVERY, roadMiles, deliveryFee, driverPay, restPos, r2 } = require("../lib/onroute");
-
-function menuFromDb(items) {
-  return (items || []).filter(x => x && x.id && Array.isArray(x.opts) && x.opts.length).map(x => ({
-    id: String(x.id), name: String(x.name || ""), soldOut: !!x.soldOut, noExtras: !!x.noExtras,
-    opts: x.opts.map(o => ({ label: String(o.label || ""), price: Number(o.price) || 0 })),
-  }));
-}
+// El dinero llega directo al negocio y Stripe le cobra a él su comisión; en pedidos a domicilio
+// el envío y la propina van a OnRoute (application fee) para pagarle al repartidor.
+const { db, stripe, handler, acctStatus, SITE } = require("../lib/onroute");
+const { buildOrder } = require("../lib/order");
 
 exports.handler = handler("createCheckout", async (body, event) => {
-  const who = String(body.name || "").trim().slice(0, 40);
-  const pickup = body.delivery ? "delivery" : body.pickup === "30" ? "30" : "asap";
-  const cart = Array.isArray(body.items) ? body.items.slice(0, 30) : [];
-  if (!who) return [400, { error: "Falta el nombre para el pedido." }];
-  if (!cart.length) return [400, { error: "El carrito está vacío." }];
-  const rid = String(body.rid || "");
-  if (!RID.test(rid)) return [400, { error: "Negocio no válido." }];
-
-  const user = await userOf(event), uid = user ? user.uid : null;
-  const rs = await db().doc(`restaurants/${rid}`).get();
-  const R = rs.exists ? rs.data() : null;
-  if (!R || R.status !== "active") return [404, { error: "Este negocio no está recibiendo pedidos." }];
-  if (R.paused) return [409, { error: "El negocio pausó los pedidos en línea. Intenta en unos minutos." }];
-  if (!inHours(R)) return [409, { error: "El negocio está fuera de su horario." }];
-  if (R.kind === "truck" && !truckLive(R)) return [409, { error: "El food truck no está en ruta ahora." }];
+  const b = await buildOrder(body, event, { card: true });
+  if (Array.isArray(b)) return b;
+  const { R, rid, order, lineItems, appFee, uid } = b;
   // Si Stripe ya aprobó la cuenta pero aún no lo sabíamos, se revisa aquí mismo.
   if (R.stripeAccount && !R.stripeReady) {
     try { if ((await acctStatus(R.stripeAccount)).ready) { R.stripeReady = true; await db().doc(`restaurants/${rid}`).update({ stripeReady: true }); } } catch (e) { console.warn("acctStatus", e.message); }
   }
-  if (!R.stripeAccount || !R.stripeReady) return [409, { error: "Este negocio todavía no acepta tarjeta. Elige Pagar al recoger." }];
-  const variant = R.variant && R.variant.label && Number(R.variant.discount) > 0 ? { label: String(R.variant.label), discount: Number(R.variant.discount) } : null;
+  if (!R.stripeAccount || !R.stripeReady) return [409, { error: "Este negocio todavía no acepta tarjeta. Elige otra forma de pago." }];
+  if (order.total < 0.5) return [400, { error: "El pago con tarjeta debe ser de al menos $0.50." }];
 
-  // El total se calcula aquí: lo que mande el navegador no cuenta.
-  const ms = await db().doc(`restaurants/${rid}/menu/main`).get();
-  const md = ms.exists ? ms.data() : {};
-  const menu = menuFromDb(md.items);
-  const extras = (Array.isArray(md.extras) ? md.extras : []).map(e => ({ id: String(e.id), label: String(e.label || ""), price: Math.max(0, Number(e.price) || 0) }));
-  const items = [], lineItems = [], cartMap = {};
-  let total = 0;
-  for (const it of cart) {
-    const [id, oi, v, ex] = String(it.key || "").split("|");
-    const qty = Math.floor(Number(it.qty));
-    const m = menu.find(x => x.id === id), o = m && m.opts[Number(oi)], vr = v === "1" ? variant : null;
-    if (!m || !o || (v === "1" && !vr) || !(qty >= 1 && qty <= 20)) return [400, { error: "Un producto del carrito ya no existe. Recarga el menú." }];
-    if (m.soldOut) return [409, { error: `${m.name} está agotado.` }];
-    const exs = (ex ? ex.split(".") : []).map(eid => extras.find(e => e.id === eid));
-    if (exs.some(e => !e) || (exs.length && m.noExtras)) return [400, { error: "Un extra del carrito ya no existe. Recarga el menú." }];
-    const price = Math.round((o.price - (vr ? vr.discount : 0) + exs.reduce((a, e) => a + e.price, 0)) * 100) / 100;
-    if (!(price > 0)) return [400, { error: "Precio no válido." }];
-    const label = `${m.name}${m.opts.length > 1 ? " · " + o.label : ""}${vr ? " · " + vr.label : ""}${exs.length ? " · + " + exs.map(e => e.label).join(", ") : ""}`.slice(0, 160);
-    items.push({ name: label, qty });
-    cartMap[`${id}|${Number(oi)}|${vr ? 1 : 0}${ex ? "|" + ex : ""}`] = qty;
-    lineItems.push({ quantity: qty, price_data: { currency: "usd", unit_amount: Math.round(price * 100), product_data: { name: label } } });
-    total += price * qty;
-  }
-  total = Math.round(total * 100) / 100;
-  const food = total;
-
-  // Entrega a domicilio: solo si el negocio la ofrece; la tarifa se calcula aquí con la distancia real.
-  let dlv = null, appFee = 0;
-  if (body.delivery) {
-    const B = body.delivery, conf = R.delivery || {};
-    if (!conf.on) return [409, { error: "Este negocio no ofrece entrega a domicilio." }];
-    const to = { lat: Number(B.lat), lng: Number(B.lng) }, from = restPos(R);
-    if (!from) return [409, { error: "El negocio no tiene su ubicación para calcular el envío." }];
-    if (!(Math.abs(to.lat) <= 90 && Math.abs(to.lng) <= 180) || (to.lat === 0 && to.lng === 0)) return [400, { error: "Elige tu dirección de entrega." }];
-    const address = String(B.address || "").trim().slice(0, 160), phone = String(B.phone || "").trim().slice(0, 30);
-    if (address.length < 5) return [400, { error: "Escribe tu dirección de entrega." }];
-    if (phone.replace(/\D/g, "").length < 7) return [400, { error: "Escribe tu teléfono para que el repartidor te pueda llamar." }];
-    const mi = roadMiles(from, to), radius = Math.min(Number(conf.radius) || 5, DELIVERY.maxMiles);
-    if (mi > radius) return [409, { error: `Tu dirección está a ${mi.toFixed(1)} millas y ${R.name} entrega hasta ${radius} millas.` }];
-    const fee = deliveryFee(mi), tip = r2(Math.min(100, Math.max(0, Number(body.tip) || 0)));
-    lineItems.push({ quantity: 1, price_data: { currency: "usd", unit_amount: Math.round(fee * 100), product_data: { name: `Envío a domicilio (${mi.toFixed(1)} mi)` } } });
-    if (tip > 0) lineItems.push({ quantity: 1, price_data: { currency: "usd", unit_amount: Math.round(tip * 100), product_data: { name: "Propina para el repartidor (100% para él)" } } });
-    total = r2(total + fee + tip);
-    appFee = Math.round((fee + tip) * 100);
-    dlv = { address, unit: String(B.unit || "").trim().slice(0, 40), notes: String(B.notes || "").trim().slice(0, 200), phone, lat: to.lat, lng: to.lng,
-      miles: mi, fee, tip, driverPay: driverPay(fee, tip), status: "pending" };
-  }
-  if (total < 0.5) return [400, { error: "El pago con tarjeta debe ser de al menos $0.50." }];
-  if (total >= 1000) return [400, { error: "El pedido es demasiado grande." }];
-
+  Object.assign(order, { status: "pending", pay: "card", paid: false });
   const ref = db().collection(`restaurants/${rid}/orders`).doc();
-  const num = "T" + String(Math.floor(100 + Math.random() * 900));
-  const order = { num, who, items, total, status: "pending", pickup, pay: "card", paid: false, createdAt: Date.now() };
-  if (dlv) { order.delivery = dlv; order.food = food; }
-  const note = String(body.note || "").trim().slice(0, 200); if (note) order.note = note;
-  if (uid) { order.uid = uid; order.cart = cartMap; order.rname = String(R.name || "").slice(0, 60); }
   await ref.set(order);
-
   const session = await stripe().checkout.sessions.create({
     mode: "payment",
     line_items: lineItems,
     client_reference_id: ref.id,
-    metadata: { rid, orderId: ref.id, num, uid: uid || "" },
-    payment_intent_data: { description: `OnRoute · pedido #${num} · ${String(R.name || rid).slice(0, 60)}`, metadata: { rid, orderId: ref.id },
+    metadata: { rid, orderId: ref.id, num: order.num, uid: uid || "" },
+    payment_intent_data: { description: `OnRoute · pedido #${order.num} · ${String(R.name || rid).slice(0, 60)}`, metadata: { rid, orderId: ref.id },
       ...(appFee ? { application_fee_amount: appFee } : {}) },
     success_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=ok`,
     cancel_url: `${SITE}?r=${rid}&pedido=${ref.id}&pago=cancelado`,

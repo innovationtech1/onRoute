@@ -26,7 +26,7 @@
           <li><b>Encuentra un negocio.</b> En <i>Pedir comida</i> ves los negocios ordenados por cercanía, en lista o en mapa. Filtra por abiertos, food trucks o restaurantes.</li>
           <li><b>Arma tu pedido.</b> Elige platillos, opciones y extras. Puedes dejar notas para la cocina.</li>
           <li><b>Elige cómo recibirlo.</b> <i>Recoger</i> en el negocio (sin costo) o <i>A domicilio</i> si el negocio lo ofrece. El envío cuesta ${fee}; la propina es opcional y es 100% para el repartidor.</li>
-          <li><b>Paga.</b> Con tarjeta (pago seguro con Stripe) o al recoger. Los pedidos a domicilio se pagan con tarjeta.</li>
+          <li><b>Paga como prefieras.</b> Con tarjeta (pago seguro con Stripe), Zelle, Cash App o efectivo (al recoger o al repartidor), según lo que acepte cada negocio. También puedes <b>combinar dos</b>: por ejemplo una parte por Zelle y el resto en efectivo. Con Zelle o Cash App te mostramos a dónde mandar el dinero; tu pedido entra a la cocina cuando el negocio confirma que le llegó.</li>
           <li><b>Sigue tu pedido.</b> Ves cada paso en vivo y, a domicilio, al repartidor en el mapa. Toca <i>Avísame</i> para recibir notificación cuando esté listo.</li>
           <li><b>Mensajes.</b> Desde tu pedido escribe al negocio con 💬, y al repartidor cuando ya va en camino.</li>
         </ol>
@@ -39,6 +39,7 @@
           <li><b>Sube tu menú.</b> En <i>Menú</i> agrega platillos con foto, opciones y extras, o toca <i>Subir foto o PDF del menú</i> y la app lo llena por ti. Revisa y guarda.</li>
           <li><b>Perfil.</b> Logo, descripción, teléfono, ubicación (o GPS en vivo si eres food truck), <b>horario</b> y tu enlace con código QR para imprimir.</li>
           <li><b>Pagos con tarjeta.</b> En <i>Perfil → Pagos con tarjeta</i> conecta tu cuenta de Stripe con la guía paso a paso. El dinero llega directo a tu banco; Stripe cobra su comisión por pago y OnRoute no cobra comisión por pedido.</li>
+          <li><b>Zelle, Cash App y efectivo.</b> En <i>Perfil → Otras formas de pago</i> escribe tu correo o teléfono de Zelle y tu $cashtag, y elige si aceptas efectivo. Esos pedidos llegan a la columna <i>Por confirmar</i>: revisa que te llegó el dinero y toca <i>Pago recibido</i> (o <i>Aceptar pedido</i> si es en efectivo).</li>
           <li><b>Entrega a domicilio (opcional).</b> En <i>Perfil</i> activa la entrega y el radio en millas. Repartidores de OnRoute llevan tus pedidos; el cliente paga el envío.</li>
           <li><b>Recibe pedidos.</b> En <i>Pedidos</i> suenan los nuevos. Muévelos: <i>Empezar → Marcar listo → Entregado</i>. Pausa los pedidos en línea cuando lo necesites.</li>
           <li><b>Promos y clientes frecuentes.</b> Descuentos automáticos o con código y tarjeta de sellos.</li>
@@ -56,10 +57,12 @@
           <li><b>Conéctate</b> con el interruptor y deja la app abierta. Suena un aviso cuando hay entregas cerca.</li>
           <li><b>Acepta</b> la que te convenga: ves cuánto ganas, la distancia y la propina.</li>
           <li><b>Recoge:</b> usa <i>Cómo llegar</i>, confirma el número de pedido y toca <i>Ya recogí</i>.</li>
-          <li><b>Entrega:</b> ves la dirección e indicaciones del cliente; llámale o escríbele si hace falta y toca <i>Entregué el pedido</i>.</li>
+          <li><b>Entrega:</b> ves la dirección e indicaciones del cliente; llámale o escríbele si hace falta y toca <i>Entregué el pedido</i>. Si el pedido es en efectivo, la app te dice exactamente cuánto cobrar.</li>
         </ol>
         <h3>Ganancias</h3>
         <p>Recibes el <b>${driverPct}% del costo de envío</b> y el <b>100% de la propina</b>. Ves lo de hoy, de los últimos 7 días y lo que está en proceso de pago.</p>
+        <h3>Entregas en efectivo</h3>
+        <p>Cuando cobras en efectivo, te quedas con lo que ganaste en esa entrega. El resto (la comida y la parte de OnRoute) se lo mandas a OnRoute por Zelle o Cash App; en tu panel, <i>Efectivo y saldo</i> te dice cuánto. Si el cliente pagó por Zelle o Cash App, OnRoute te paga lo tuyo con tu pago de la semana.</p>
         <h3>Seguridad</h3>
         <p>Respeta las leyes de tránsito, no uses el celular mientras manejas y mantén los pedidos cerrados y limpios. La dirección y el teléfono del cliente solo se muestran después de aceptar y no deben usarse para nada más.</p>` },
 
@@ -67,6 +70,7 @@
         <table class="doc-table"><tr><th>Concepto</th><th>Quién paga</th><th>Monto</th></tr>
           <tr><td>Comisión por pedido de OnRoute</td><td>Negocio</td><td><b>$0</b></td></tr>
           <tr><td>Comisión de Stripe por pago con tarjeta</td><td>Negocio</td><td>La tarifa estándar de Stripe (aprox. 2.9% + 30¢ en EE. UU.)</td></tr>
+          <tr><td>Pagos por Zelle, Cash App o efectivo</td><td>—</td><td>Sin comisión de OnRoute; llegan directo al negocio</td></tr>
           <tr><td>Envío a domicilio</td><td>Cliente</td><td>${fee}</td></tr>
           <tr><td>Propina</td><td>Cliente (opcional)</td><td>100% para el repartidor</td></tr>
           <tr><td>Parte del envío para el repartidor</td><td>—</td><td>${driverPct}%</td></tr>
@@ -76,6 +80,8 @@
       { id: "faq", group: "Ayuda", title: "Preguntas frecuentes", icon: "❓", html: `
         <details><summary>¿Necesito cuenta para pedir?</summary><p>No. Puedes pedir como invitado. Con cuenta guardas tu historial, favoritos y sellos.</p></details>
         <details><summary>¿Por qué un negocio aparece cerrado?</summary><p>Está fuera de su horario, pausó los pedidos o, si es food truck, no está compartiendo su ubicación en este momento.</p></details>
+        <details><summary>¿Puedo pagar con Zelle, Cash App o en efectivo?</summary><p>Sí, si el negocio lo acepta. Elige la forma de pago al final de tu pedido; también puedes combinar dos (ej. Zelle + efectivo). Con Zelle o Cash App manda el pago con tu número de pedido en la nota; tu pedido entra a la cocina cuando el negocio lo confirma.</p></details>
+        <details><summary>Mandé el pago por Zelle y mi pedido sigue "por confirmar"</summary><p>El negocio tiene que ver el dinero en su app. Escríbele desde el chat de tu pedido. Si no te lo confirma, usa <i>Contacto y soporte</i>.</p></details>
         <details><summary>¿Por qué no puedo pagar a domicilio?</summary><p>Elige tu dirección de la lista de sugerencias (o toca <i>Aquí</i>) y revisa que esté dentro del área de entrega del negocio. El botón te dice qué falta.</p></details>
         <details><summary>¿Es seguro pagar con tarjeta?</summary><p>Sí. El pago se hace en la página segura de Stripe; OnRoute nunca ve ni guarda los datos de tu tarjeta.</p></details>
         <details><summary>¿Cómo cancelo o pido un reembolso?</summary><p>Escríbele al negocio desde el chat de tu pedido. Si ya pagaste con tarjeta y hay un problema, usa <i>Contacto y soporte</i> y lo resolvemos.</p></details>
@@ -105,7 +111,7 @@
         <h3>1. Qué es OnRoute</h3><p>OnRoute es una plataforma tecnológica que permite a negocios de comida publicar su menú y recibir pedidos, a clientes hacer pedidos y a repartidores independientes entregarlos. OnRoute no prepara alimentos ni es parte de la compraventa entre el cliente y el negocio.</p>
         <h3>2. Cuentas</h3><p>Debes dar información verdadera y cuidar tu contraseña. Eres responsable de lo que se haga con tu cuenta. Podemos suspender cuentas que incumplan estos términos o se usen para fraude.</p>
         <h3>3. Pedidos y precios</h3><p>Los precios, la disponibilidad, la calidad y la seguridad de los alimentos son responsabilidad de cada negocio. El total se confirma antes de pagar. Los pedidos para recoger pagados en efectivo se pagan directamente al negocio.</p>
-        <h3>4. Pagos</h3><p>Los pagos con tarjeta los procesa Stripe en nombre del negocio, sujetos a los términos de Stripe. El costo de envío y la propina de pedidos a domicilio los cobra OnRoute para pagar al repartidor según las <a href="#ayuda/tarifas">tarifas publicadas</a>.</p>
+        <h3>4. Pagos</h3><p>Los pagos con tarjeta los procesa Stripe en nombre del negocio, sujetos a los términos de Stripe. El costo de envío y la propina de pedidos a domicilio los cobra OnRoute para pagar al repartidor según las <a href="#ayuda/tarifas">tarifas publicadas</a>. Los pagos por Zelle, Cash App o efectivo se hacen directamente al negocio o al repartidor; OnRoute no procesa ese dinero, solo lleva el registro para que cada quien reciba su parte. El pedido entra a la cocina cuando el negocio confirma el pago.</p>
         <h3>5. Cancelaciones y reembolsos</h3><p>El negocio decide sobre cancelaciones de pedidos ya preparados. Si un pedido pagado con tarjeta no se entrega o llega incompleto por causas ajenas al cliente, contáctanos y gestionaremos un reembolso total o parcial con el negocio.</p>
         <h3>6. Entregas</h3><p>Los repartidores son contratistas independientes, no empleados de OnRoute ni del negocio. Los tiempos de entrega son estimados.</p>
         <h3>7. Uso aceptable</h3><p>No está permitido usar OnRoute para fraude, acoso, contenido ilegal u ofensivo, intentar acceder a datos de otros o afectar el funcionamiento de la plataforma. Los mensajes del chat deben limitarse al pedido.</p>

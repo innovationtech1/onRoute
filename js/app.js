@@ -115,6 +115,19 @@
   }
   // Tarjeta solo si el servidor de pagos está encendido y este negocio ya conectó su cuenta de Stripe.
   const cardOn = () => !!(window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API && S.R && S.R.stripeReady === true);
+  // Formas de pago: tarjeta (Stripe) y a mano (Zelle, Cash App, efectivo). A mano se pueden combinar dos.
+  const PAYN = { card: "Tarjeta", zelle: "Zelle", cashapp: "Cash App", cash: "Efectivo" };
+  function manualOf(R, dl) {
+    const P = (R && R.payments) || {}, out = [];
+    if (dl ? P.cashDelivery !== false : P.cash !== false) out.push("cash");
+    if (window.ONROUTE_API && P.zelle) out.push("zelle");
+    if (window.ONROUTE_API && P.cashapp) out.push("cashapp");
+    return dl && !window.ONROUTE_API ? [] : out;
+  }
+  function payMethods(R, dl) { const c = window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API && R && R.stripeReady === true; return (c ? ["card"] : []).concat(manualOf(R, dl)); }
+  const payLine = o => Array.isArray(o.payParts) && o.payParts.length ? o.payParts.map(p => `${PAYN[p.m] || p.m} ${money(p.amt)}`).join(" + ") : o.paid ? "Tarjeta" : "Efectivo";
+  const cashOf = o => Array.isArray(o.payParts) ? r2(o.payParts.filter(p => p.m === "cash").reduce((a, p) => a + num(p.amt), 0)) : (o.paid ? 0 : num(o.total));
+  const cashAppLink = (tag, amt) => `https://cash.app/${encodeURIComponent(String(tag).replace(/^\$?/, "$"))}/${Number(amt).toFixed(2)}`;
   // Regreso desde Stripe después de conectar la cuenta del negocio (?stripe=back#panel).
   const stripeBack = (() => { try { const q = new URLSearchParams(location.search), v = q.get("stripe"); if (v) { q.delete("stripe"); history.replaceState(null, "", location.pathname + (q.toString() ? "?" + q : "") + location.hash); } return v || ""; } catch (e) { return ""; } })();
 
@@ -467,6 +480,7 @@
         const dprev = S.mine && S.mine.id === id && S.mine.delivery ? S.mine.delivery.status : null;
         S.mine = d.exists ? { id: d.id, ...d.data() } : null; S.mineReady = true;
         if (S.mine && !S.mine.delivery && S.mine.status === "ready" && prev && prev !== "ready") readyAlert(S.mine);
+        if (S.mine && prev === "await" && S.mine.status === "new") readyAlert(S.mine, "¡Pedido confirmado! ✅", `${S.R ? S.R.name : "El negocio"} confirmó tu pedido y ya lo están preparando.`);
         if (S.mine && !["pending", "cancelled"].includes(S.mine.status)) chatWatch(rid, id, S.mine.delivery ? ["cb", "dc"] : ["cb"], "customer");
         if (S.mine && S.mine.delivery) {
           const ds = S.mine.delivery.status;
@@ -598,7 +612,7 @@
     return `<div class="perk loyal ${st.ready ? "ready" : ""}">${I.gift}<div class="loyal-in"><span>${st.ready ? `<b>¡Completaste tu tarjeta!</b> Tu siguiente pedido lleva: ${esc(L.reward)}.` : `<b>Cliente frecuente · ${st.have} de ${L.every} sellos</b> · Al juntar ${L.every}, tu siguiente pedido lleva: ${esc(L.reward)}.`}</span>${dots(st.have)}</div></div>`;
   }
   // Total con la promoción que aplique (solo en pedidos que se pagan al recoger).
-  const dlvOn = R => !!(R && R.delivery && R.delivery.on && cardOn() && restPos(R));
+  const dlvOn = R => !!(R && R.delivery && R.delivery.on && restPos(R) && payMethods(R, true).length);
   const isDlv = () => S.recv === "delivery" && dlvOn(S.R);
   function dlvQuote() {
     const R = S.R, D = S.dlv || {};
@@ -607,7 +621,10 @@
     return { mi, radius, far: mi > radius, fee: dlvFee(mi) };
   }
   function cartTotals() {
-    const sub = Math.round(subtotal() * 100) / 100, dl = isDlv(), card = dl || (cardOn() && S.payMode === "card");
+    const sub = Math.round(subtotal() * 100) / 100, dl = isDlv(), ms = payMethods(S.R, dl);
+    if (S.payMode !== "split" && !ms.includes(S.payMode)) S.payMode = ms[0] || "cash";
+    if (S.payMode === "split" && manualOf(S.R, dl).length < 2) S.payMode = ms[0] || "cash";
+    const card = S.payMode === "card";
     const pr = card ? null : bestPromo(S.R, sub, S.promoCode);
     const q = dl ? dlvQuote() : null, fee = q && !q.far ? q.fee : 0, tip = dl ? r2(Number(S.tip) || 0) : 0;
     return { sub, pr, tot: Math.round((sub - (pr ? pr.off : 0) + fee + tip) * 100) / 100, card, dl, q, fee, tip };
@@ -667,6 +684,30 @@
         <div class="tips">${tips.map(t => `<button type="button" data-tip="${t}" aria-pressed="${Number(S.tip || 0) === t}">${t ? money(t) : "Sin propina"}</button>`).join("")}</div></div>
     </div>`;
   }
+  function payPickHTML(R, dl, tot) {
+    const ms = payMethods(R, dl), man = manualOf(R, dl);
+    if (!ms.length) return `<p class="err">Este negocio todavía no configura sus formas de pago.</p>`;
+    if (ms.length === 1 && ms[0] === "cash" && !dl) return "";
+    const sub = { card: "Pago seguro con Stripe", zelle: "Desde tu banco", cashapp: "Desde tu app", cash: dl ? "Al repartidor" : "Al recoger" };
+    const sp = S.split || {}, a = man.includes(sp.a) ? sp.a : (man.find(m => m !== "cash") || man[0]), b = man.includes(sp.b) && sp.b !== a ? sp.b : (man.includes("cash") && a !== "cash" ? "cash" : man.find(m => m !== a));
+    if (S.payMode === "split") S.split = { a, b, amt: sp.amt };
+    const amt = num(Number((S.split || {}).amt)), rest = r2(tot - amt);
+    return `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices pays">
+      ${ms.map(m => `<button data-paymode="${m}" aria-pressed="${S.payMode === m}"><b>${PAYN[m]}</b>${sub[m]}</button>`).join("")}
+      ${man.length >= 2 ? `<button data-paymode="split" aria-pressed="${S.payMode === "split"}"><b>Combinar</b>Dos formas de pago</button>` : ""}</div>
+      ${S.payMode === "split" ? `<div class="split">
+        <div class="split-row"><select id="splitA" aria-label="Primera forma de pago">${man.map(m => `<option value="${m}" ${m === a ? "selected" : ""}>${PAYN[m]}</option>`).join("")}</select>
+          <span class="split-amt"><span>$</span><input id="splitAmt" inputmode="decimal" placeholder="0.00" value="${amt ? amt.toFixed(2) : ""}" aria-label="Cuánto pagas con la primera"></span></div>
+        <div class="split-row"><select id="splitB" aria-label="Segunda forma de pago">${man.filter(m => m !== a).map(m => `<option value="${m}" ${m === b ? "selected" : ""}>${PAYN[m]}</option>`).join("")}</select>
+          <b class="mono" id="splitRest">${amt > 0 && rest > 0 ? money(rest) : "el resto"}</b></div>
+        <p class="hint">Ej. una parte por Zelle y el resto en efectivo. Cada parte de al menos $1.00.</p></div>` : ""}</div>`;
+  }
+  function payPartsOf(tot) {
+    if (S.payMode !== "split") return { parts: [{ m: S.payMode }] };
+    const sp = S.split || {}, amt = r2(num(Number(sp.amt)));
+    if (!(amt >= 1) || !(tot - amt >= 1)) return { err: `Escribe cuánto pagas con ${PAYN[sp.a] || "la primera forma"} (entre $1.00 y ${money(tot - 1)}).` };
+    return { parts: [{ m: sp.a, amt }, { m: sp.b }] };
+  }
   function cartHTML() {
     const R = S.R, { sub, pr, tot, card, dl, q, fee, tip } = cartTotals(), closed = !isOpen(R) || R.status !== "active";
     const L = loyaltyOf(R), st = myStamps(S.rid, L), hasCodes = promosOf(R).some(p => p.code);
@@ -691,21 +732,19 @@
           </div></div>`}
         <div class="field"><label for="noteInput">Notas para la cocina <span class="hint">(opcional)</span></label><textarea id="noteInput" maxlength="200" rows="2" placeholder="Ej. sin cebolla, salsa aparte">${esc(S.note || "")}</textarea></div>
         <div class="field"><label for="nameInput">Nombre para el pedido</label><input id="nameInput" maxlength="40" placeholder="Ej. Ana" value="${esc(S.name)}" autocomplete="given-name"></div>
-        ${cardOn() && !dl ? `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices">
-            <button data-paymode="card" aria-pressed="${S.payMode === "card"}"><b>Tarjeta ahora</b>Pago seguro con Stripe</button>
-            <button data-paymode="cash" aria-pressed="${S.payMode === "cash"}"><b>Al recoger</b>En el negocio</button></div></div>` : ""}
+        ${payPickHTML(R, dl, tot)}
         ${hasCodes && !card ? `<div class="field"><label for="promoInput">Código de promoción <span class="hint">(opcional)</span></label>
           <div class="promo-in"><input id="promoInput" maxlength="15" value="${esc(S.promoInput || "")}" placeholder="Ej. TORTAMARTES" autocapitalize="characters" autocomplete="off"><button class="btn sec sm" data-act="promo">Aplicar</button></div>
           ${S.promoMsg ? `<p class="${S.promoOk ? "ok-msg" : "err"}" role="status">${esc(S.promoMsg)}</p>` : ""}</div>` : ""}
         ${near ? `<div class="promo-hint">${I.tag}<span>Te faltan <b class="mono">${money(near.min - sub)}</b> para ${esc(near.title || promoText(near))}.</span></div>` : ""}
-        ${st && st.ready ? (card ? `<div class="promo-hint">${I.gift}<span>Completaste tu tarjeta de sellos. Para recibir tu premio (${esc(L.reward)}) elige <b>Al recoger</b>.</span></div>` : `<div class="reward">${I.gift}<span><b>¡Premio de cliente frecuente!</b> Este pedido lleva: ${esc(L.reward)}.</span></div>`) : ""}
-        ${card && promosOf(R).length ? `<p class="hint">Las promociones aplican en pedidos que pagas al recoger.</p>` : ""}
+        ${st && st.ready ? (card ? `<div class="promo-hint">${I.gift}<span>Completaste tu tarjeta de sellos. Para recibir tu premio (${esc(L.reward)}) elige otra forma de pago que no sea tarjeta.</span></div>` : `<div class="reward">${I.gift}<span><b>¡Premio de cliente frecuente!</b> Este pedido lleva: ${esc(L.reward)}.</span></div>`) : ""}
+        ${card && promosOf(R).length ? `<p class="hint">Las promociones aplican cuando pagas con efectivo, Zelle o Cash App.</p>` : ""}
         <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}${dl ? `<div class="sub"><span>Comida</span><span class="mono">${money(sub)}</span></div><div class="sub"><span>Envío${q && !q.far ? ` (${q.mi.toFixed(1)} mi)` : ""}</span><span class="mono">${q && !q.far ? money(fee) : "—"}</span></div>${tip ? `<div class="sub"><span>Propina</span><span class="mono">${money(tip)}</span></div>` : ""}` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
-        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : dl && !q ? "Elige tu dirección de la lista para continuar" : dl && q.far ? "Tu dirección está fuera del área de entrega" : card ? `Pagar ${money(tot)} con tarjeta` : `Enviar pedido · pagas ${money(tot)} al recoger`}</button>
+        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) || !payMethods(R, dl).length ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : dl && !q ? "Elige tu dirección de la lista para continuar" : dl && q.far ? "Tu dirección está fuera del área de entrega" : card ? `Pagar ${money(tot)} con tarjeta` : S.payMode === "cash" ? `Enviar pedido · pagas ${money(tot)} ${dl ? "al recibirlo" : "al recoger"}` : `Enviar pedido · ${money(tot)} por ${S.payMode === "split" ? "dos formas de pago" : PAYN[S.payMode]}`}</button>
         ${S.user ? `<p class="hint" style="text-align:center">Pides como ${esc(S.user.email || "")}. Lo verás en Mis pedidos.</p>` : `<p class="hint" style="text-align:center"><a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para guardar tus pedidos. También puedes pedir sin cuenta.</p>`}
-        <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : "Pagas en efectivo o tarjeta al recoger."}</p>
+        <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : S.payMode === "cash" ? (dl ? "Pagas en efectivo al repartidor cuando te entregue." : "Pagas en efectivo al recoger.") : "Al enviar tu pedido te mostramos a dónde mandar el pago. Entra a la cocina cuando el negocio lo confirme."}</p>
       </div>`;
   }
   function dlvStatusHTML(o) {
@@ -717,7 +756,7 @@
     setTimeout(drawDlvMap, 30);
     return `<div class="status">
       <h2>${title}</h2>
-      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>A domicilio · ${esc(S.R.name)}</p><span class="paychip paid">Pagado con tarjeta</span></div>
+      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>A domicilio · ${esc(S.R.name)}</p><span class="paychip ${o.paid || !cashOf(o) ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : cashOf(o) && ds !== "delivered" ? `Paga ${money(cashOf(o))} en efectivo al repartidor` : `Pagado · ${esc(payLine(o))}`}</span></div>
       ${ds === "delivered" ? "" : notifyHTML({ ...o, status: "prep" }).replace(/cuando esté listo/g, "cuando vaya en camino y cuando llegue")}
       ${(ds === "assigned" || ds === "picked") ? `<div class="dlv-map" id="dlvMap"></div>${live && live.driverLoc ? `<p class="hint">Ubicación del repartidor ${ago(live.driverLoc.t || Date.now())}.</p>` : `<p class="hint">Verás al repartidor en el mapa cuando comparta su ubicación.</p>`}` : ""}
       <ol class="steps">${steps.map((x, i) => { const done = i < idx || (i === 4 && idx === 4); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${x[0]}</b><small>${esc(x[1])}</small></div></li>`; }).join("")}</ol>
@@ -739,10 +778,33 @@
       try { dlvMapObj.fitBounds([home, p], { padding: [40, 40], maxZoom: 15 }); } catch (e) {}
     }
   }
+  // Pedido pagado a mano que el negocio aún no confirma: a dónde mandar el dinero.
+  function awaitHTML(o) {
+    const R = S.R, P = R.payments || {}, parts = o.payParts || [], pre = parts.filter(p => p.m !== "cash"), cash = cashOf(o);
+    const how = p => p.m === "zelle" ? `<div class="paybox"><b>Zelle · <span class="mono">${money(p.amt)}</span></b><span>Desde la app de tu banco manda el pago a:</span>
+        <div class="payto"><code>${esc(P.zelle || "")}</code><button class="btn sm sec" data-copy="${esc(P.zelle || "")}">Copiar</button></div><span class="hint">En la nota escribe <b>#${esc(o.num)}</b>.</span></div>`
+      : p.m === "cashapp" ? `<div class="paybox"><b>Cash App · <span class="mono">${money(p.amt)}</span></b><span>Manda el pago a <code>${esc(P.cashapp || "")}</code> con la nota <b>#${esc(o.num)}</b>.</span>
+        <div class="payto"><a class="btn sm green" href="${esc(cashAppLink(P.cashapp || "", p.amt))}" target="_blank" rel="noopener">Abrir Cash App</a><button class="btn sm sec" data-copy="${esc(P.cashapp || "")}">Copiar $cashtag</button></div></div>`
+      : `<div class="paybox"><b>Efectivo · <span class="mono">${money(p.amt)}</span></b><span>${o.delivery ? "Se lo pagas al repartidor cuando te entregue." : "Lo pagas al recoger."}</span></div>`;
+    return `<div class="status">
+      <h2>${pre.length ? "Manda tu pago" : "Esperando al negocio"}</h2>
+      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.delivery ? "A domicilio" : o.pickup === "30" ? "Pasas en 30 min" : "Para recoger"} · ${esc(R.name)}</p><span class="paychip">Por confirmar · ${esc(payLine(o))}</span></div>
+      ${parts.map(how).join("")}
+      <div class="banner info"><span>${pre.length ? `Cuando ${esc(R.name)} vea tu pago, tu pedido entra a la cocina y aquí te avisamos.` : `${esc(R.name)} está revisando tu pedido. En cuanto lo acepte entra a la cocina.`}${cash && pre.length ? ` El resto (${money(cash)}) en efectivo.` : ""}</span></div>
+      <div class="chat-row">${chatBtn(o.id, "cb", "customer", "Escribir al negocio")}</div>
+      <div class="points"><span>Total del pedido</span><strong class="mono">${money(o.total)}</strong></div>
+      <button class="ghost" data-act="neworder">Volver al menú</button></div>`;
+  }
   function statusHTML() {
     const o = S.mine;
     if (!o) return S.mineReady ? `<div class="status"><h2>No encontramos tu pedido</h2><button class="ghost" data-act="neworder">Hacer un pedido</button></div>` : `<div class="empty-box">Cargando tu pedido…</div>`;
     const st = o.status;
+    if (st === "await") return awaitHTML(o);
+    if (st === "cancelled" && o.payParts) return `<div class="status"><h2>Pedido no confirmado</h2>
+      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${esc(S.R.name)} no pudo confirmar este pedido. Si ya mandaste dinero por Zelle o Cash App, escríbele al negocio o a soporte para que te lo regrese.</p></div>
+      <div class="chat-row">${chatBtn(o.id, "cb", "customer", "Escribir al negocio")}</div>
+      <a class="ghost" href="./#ayuda/contacto" data-help="contacto" style="text-align:center">Contacto y soporte</a>
+      <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
     if (st === "pending" || st === "cancelled") return `<div class="status"><h2>${st === "pending" ? "Confirmando tu pago…" : "Pago no completado"}</h2>
       <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${st === "pending" ? "En cuanto se confirme el pago, tu pedido entra a la cocina." : "Este pedido no se cobró y no llegó a la cocina."}</p></div>
       <button class="ghost" data-act="neworder">${st === "pending" ? "Volver al menú" : "Hacer otro pedido"}</button></div>`;
@@ -751,7 +813,7 @@
     const steps = [["Pedido recibido", "El negocio ya lo tiene en su pantalla"], ["En preparación", "Lo están preparando"], ["Listo para recoger", "Pasa con tu número"]];
     return `<div class="status">
       <h2>${st === "ready" ? "¡Tu pedido está listo!" : st === "done" ? "¡Buen provecho!" : "Gracias, " + esc(o.who)}</h2>
-      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Pagas al recoger"}</span></div>
+      <div class="ticket"><div class="num">#${esc(o.num)}</div><p>${o.pickup === "30" ? "Pasas en 30 min" : "Listo en unos 15 min"} · ${esc(S.R.name)}</p><span class="paychip ${o.paid || (o.paidOk && !cashOf(o)) ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : o.payParts ? (cashOf(o) ? `${o.paidOk && cashOf(o) < o.total ? "Pago recibido · " : ""}${money(cashOf(o))} en efectivo al recoger` : `Pagado · ${esc(payLine(o))}`) : "Pagas al recoger"}</span></div>
       ${notifyHTML(o)}
       <ol class="steps">${steps.map((s, i) => { const done = i < idx || (i === 2 && idx >= 2); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${s[0]}</b><small>${s[1]}</small></div></li>`; }).join("")}</ol>
       ${st !== "done" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Escribir al negocio")}</div>` : ""}
@@ -760,6 +822,20 @@
       ${o.reward ? `<div class="reward">${I.gift}<span><b>Premio de cliente frecuente:</b> ${esc(o.reward)}. Recógelo con tu pedido.</span></div>` : ""}
       <div class="points"><span>Total del pedido</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
+  }
+  // Zelle, Cash App, efectivo a domicilio o dos combinados: el servidor arma el pedido con los precios reales.
+  async function placeManual(nm, tot) {
+    const pp = payPartsOf(tot);
+    if (pp.err) { S.payErr = pp.err; paint(renderRest); return; }
+    const rid = S.rid; S.busy = true; paint(renderRest);
+    try {
+      const j = await payApi("createOrder", { rid, name: nm, pickup: S.pickup, note: String(S.note || "").trim().slice(0, 200), promoCode: S.promoCode || "",
+        items: Object.entries(S.cart).map(([key, qty]) => ({ key, qty })), pay: pp, ...(isDlv() ? { delivery: { ...S.dlv }, tip: Number(S.tip) || 0 } : {}) });
+      S.myOrder = j.orderId; ss.set(`onroute-my-${rid}`, j.orderId);
+      ls.set(`onroute-last-${rid}`, { cart: S.cart, name: nm, at: Date.now() });
+      S.cart = {}; S.note = ""; S.promoCode = ""; S.promoInput = ""; S.promoMsg = ""; S.view = "status"; S.busy = false; watchMine(); paint(renderRest);
+      const c = $("#client"); if (c) c.scrollTop = 0;
+    } catch (e) { S.busy = false; S.payErr = String(e.message || "").split(" Detalle:")[0] || "No se pudo enviar el pedido."; if (/Failed to fetch/.test(S.payErr)) S.payErr = "No se pudo conectar. Revisa tu conexión e intenta otra vez."; paint(renderRest); }
   }
   async function placeOrder() {
     const nm = (($("#nameInput") || {}).value || "").trim().slice(0, 40);
@@ -774,7 +850,9 @@
       if (!D.phone && S.profile && S.profile.phone) S.dlv.phone = S.profile.phone;
       ls.set("onroute-dlv", S.dlv);
     }
-    if (isDlv() || (cardOn() && S.payMode === "card")) {
+    const { tot: totNow } = cartTotals();
+    if (S.payMode !== "card" && (isDlv() || S.payMode !== "cash")) { placeManual(nm, totNow); return; }
+    if (S.payMode === "card") {
       S.busy = true; paint(renderRest);
       try {
         const headers = { "Content-Type": "application/json" };
@@ -786,7 +864,7 @@
         if (!r.ok || !j.url) throw new Error(j.error || "No se pudo iniciar el pago.");
         ls.set("onroute-pending", { cart: S.cart, name: nm, orderId: j.orderId, rid, at: Date.now() });
         location.href = j.url;
-      } catch (e) { S.busy = false; S.payErr = e.message && e.message !== "Failed to fetch" ? e.message : "No se pudo conectar con el pago. Revisa tu conexión o elige Pagar al recoger."; paint(renderRest); }
+      } catch (e) { S.busy = false; S.payErr = e.message && e.message !== "Failed to fetch" ? e.message : "No se pudo conectar con el pago. Revisa tu conexión o elige otra forma de pago."; paint(renderRest); }
       return;
     }
     const { sub, pr, tot } = cartTotals(), L = loyaltyOf(S.R), st = myStamps(rid, L);
@@ -846,7 +924,7 @@
       afterAuth();
     });
   }
-  let drvUnsub = null, driversUnsub = null, admDlvUnsub = null, owedUnsub = null;
+  let drvUnsub = null, driversUnsub = null, admDlvUnsub = null, owedUnsub = null, ledUnsub = null;
   function watchDrivers() {
     if (driversUnsub) return;
     driversUnsub = db.collection("drivers").onSnapshot(snap => { S.drivers = snap.docs.map(d => ({ id: d.id, ...d.data() })); S.driversReady = true; if (S.route.name === "admin") paint(renderAdmin); }, e => { console.warn("OnRoute: repartidores", e); S.driversReady = true; });
@@ -854,7 +932,7 @@
   // ================================================================ CENTRO DE AYUDA, MENÚ Y SOPORTE
   let supUnsub = null, mySupUnsub = null;
   const SUP_TOPICS = { order: "Un pedido", pay: "Pago o reembolso", biz: "Mi negocio", drv: "Repartidor / entregas", acct: "Mi cuenta", bug: "La app no funciona bien", other: "Otro" };
-  const APP_VER = "1.36";
+  const APP_VER = "1.37";
   let docsCache = null;
   function helpDocs() { if (!docsCache) docsCache = typeof window.ONROUTE_DOCS === "function" ? window.ONROUTE_DOCS(DLV) : []; return docsCache; }
   function renderHelp() {
@@ -1221,23 +1299,27 @@
           <button class="linkbtn" data-dact="release" data-id="${esc(C.id)}">No puedo hacerla · soltar entrega</button></div>`
         : `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 2 de 2 · Entregar</span><b class="mono">${money(C.driverPay)}</b></div>
           <h3>${esc(Inf.name || "Cliente")}</h3><p><b>${esc(Inf.address || "")}</b>${Inf.unit ? `<br>${esc(Inf.unit)}` : ""}</p>
+          ${C.collect > 0 ? `<div class="dcash">💵 Cobra <b class="mono">${money(C.collect)}</b> en efectivo al entregar${C.prepaid > 0 ? ` (el cliente ya pagó ${money(C.prepaid)} por Zelle/Cash App)` : ""}.</div>` : C.pay === "manual" ? `<div class="dcash ok">El cliente ya pagó. No cobres nada.</div>` : ""}
           ${Inf.notes ? `<div class="onote"><b>Indicaciones:</b> ${esc(Inf.notes)}</div>` : ""}
           <div class="sg-btns">${Inf.lat ? `<a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(Inf.lat, Inf.lng)}">${I.pin} Cómo llegar</a>` : ""}${Inf.phone ? `<a class="btn sec" href="tel:${esc(String(Inf.phone).replace(/[^\d+]/g, ""))}">Llamar al cliente</a>` : ""}</div>
           <div class="chat-row">${chatBtn(C.id, "dc", "driver", "Escribir al cliente", "hot")}${chatBtn(C.id, "db", "driver", "Negocio")}</div>
-          <button class="btn green big" data-dact="delivered" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Entregué el pedido</button></div>`;
+          <button class="btn green big" data-dact="delivered" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>${C.collect > 0 ? `Entregué y cobré ${money(C.collect)}` : "Entregué el pedido"}</button></div>`;
     }
     const list = (S.avail || []).map(x => ({ ...x, away: me && x.pickup ? miles(me, x.pickup) * DLV.roadFactor : null })).sort((a, b) => (a.away ?? 99) - (b.away ?? 99));
     const avail = D.current ? "" : !D.online ? "" : `<div class="kcard"><h4>Entregas disponibles</h4>${!list.length ? `<div class="empty">Por ahora no hay entregas. Te avisamos con un sonido cuando llegue una.</div>`
-      : list.map(x => `<div class="dav"><div style="min-width:0"><b>${esc(x.rname)}</b><span>${x.away != null ? `Recoger a ${fmtMi(x.away)}` : "Recoger"} · entregar ${x.miles ? x.miles.toFixed(1) + " mi" : ""}${x.drop && x.drop.area ? " · " + esc(x.drop.area) : ""}</span><span>${kitchenTxt(x.kitchen)} · ${x.items || ""} producto(s)${x.tip ? ` · incluye ${money(x.tip)} de propina` : ""}</span></div>
+      : list.map(x => `<div class="dav"><div style="min-width:0"><b>${esc(x.rname)}</b><span>${x.away != null ? `Recoger a ${fmtMi(x.away)}` : "Recoger"} · entregar ${x.miles ? x.miles.toFixed(1) + " mi" : ""}${x.drop && x.drop.area ? " · " + esc(x.drop.area) : ""}</span><span>${kitchenTxt(x.kitchen)} · ${x.items || ""} producto(s)${x.tip ? ` · incluye ${money(x.tip)} de propina` : ""}</span>${x.collect > 0 ? `<span class="dcash-s">💵 Cobras ${money(x.collect)} en efectivo</span>` : ""}</div>
           <div class="dav-r"><b class="mono">${money(x.driverPay)}</b><button class="btn green sm" data-dact="accept" data-id="${esc(x.id)}" ${busy ? "disabled" : ""}>Aceptar</button></div></div>`).join("")}</div>`;
     const mine = S.myDlv || [], t0 = todayStart(), wk = t0 - 6 * 86400000;
     const done = mine.filter(x => x.status === "delivered"), today = done.filter(x => (x.deliveredAt || 0) >= t0), week = done.filter(x => (x.deliveredAt || 0) >= wk);
     const sum = a => a.reduce((n, x) => n + (Number(x.driverPay) || 0), 0), pend = done.filter(x => x.payout === "pending" || x.payout === "manual");
+    const led = done.filter(x => x.payout === "ledger"), owe = r2(led.reduce((n, x) => n + num(x.settle && x.settle.drv), 0));
     const earn = `<div class="kcard"><h4>Tus ganancias</h4><div class="tiles three"><div class="tile t-green"><b class="mono">${money(sum(today))}</b><small>Hoy · ${today.length} entrega${today.length === 1 ? "" : "s"}</small></div><div class="tile t-blue"><b class="mono">${money(sum(week))}</b><small>Últimos 7 días</small></div><div class="tile t-purple"><b class="mono">${money(sum(pend))}</b><small>Pago en proceso</small></div></div>
-      ${done.length ? `<div class="dhist">${done.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)).slice(0, 8).map(x => `<div><span>${esc(x.rname)} · #${esc(x.num)} · ${ago(x.deliveredAt || 0)}</span><b class="mono">${money(x.driverPay)}</b><em>${x.payout === "paid" || x.payout === "paid_manual" ? "Pagado" : x.payout === "manual" ? "Por cobrar" : "En proceso"}</em></div>`).join("")}</div>` : `<p class="hint">Aquí verás lo que ganas por cada entrega. Los pagos llegan a tu banco con Stripe; puedes retirar al instante desde Stripe Express.</p>`}</div>`;
+      ${done.length ? `<div class="dhist">${done.sort((a, b) => (b.deliveredAt || 0) - (a.deliveredAt || 0)).slice(0, 8).map(x => `<div><span>${esc(x.rname)} · #${esc(x.num)} · ${ago(x.deliveredAt || 0)}</span><b class="mono">${money(x.driverPay)}</b><em>${x.payout === "paid" || x.payout === "paid_manual" || x.payout === "settled" ? "Pagado" : x.payout === "manual" ? "Por cobrar" : x.payout === "ledger" ? (x.collect > 0 ? `Cobraste ${money(x.collect)}` : "En saldo") : "En proceso"}</em></div>`).join("")}</div>` : `<p class="hint">Aquí verás lo que ganas por cada entrega. Los pagos llegan a tu banco con Stripe; puedes retirar al instante desde Stripe Express.</p>`}</div>`;
+    const bal = led.length ? `<div class="kcard dbal ${owe > 0 ? "owe" : ""}"><h4>Efectivo y saldo</h4><p>${owe > 0 ? `De lo que cobraste en efectivo, ya te quedaste con lo tuyo. Le debes a OnRoute <b class="mono">${money(owe)}</b> (la comida y la parte de OnRoute). Mándalo por Zelle o Cash App cuando el administrador te lo pida.`
+      : owe < 0 ? `OnRoute te debe <b class="mono">${money(-owe)}</b> de entregas pagadas por Zelle o Cash App. Te llega con tu pago de la semana.` : "Estás a mano con OnRoute."}</p><p class="hint">${led.length} entrega${led.length === 1 ? "" : "s"} pagada${led.length === 1 ? "" : "s"} a mano sin liquidar.</p></div>` : "";
     const online = `<div class="kcard donline ${D.online ? "on" : ""}"><div><b>${D.online ? "Estás en línea" : "Estás desconectado"}</b><span>${D.online ? "Recibes avisos de entregas cerca de ti. Mantén la app abierta." : "Conéctate cuando quieras repartir."}</span>${S.drvGpsErr ? `<span class="err">${esc(S.drvGpsErr)}</span>` : ""}</div>
       <input type="checkbox" class="tgl" id="drvOnline" aria-label="En línea" ${D.online ? "checked" : ""} ${D.current ? "disabled" : ""}></div>`;
-    return `${online}${cur}${avail}${earn}`;
+    return `${online}${cur}${avail}${earn}${bal}`;
   }
   function drvSummaryHTML(D) {
     const V = D.vehicle || {}, days = licDays(D.licenseExpires);
@@ -1368,8 +1450,8 @@
     [ordUnsub, myMenuUnsub].forEach(f => { try { f && f(); } catch (e) {} });
     S.orders = []; S.ordersReady = false; S.myMenu = []; S.myMenuReady = false; S.meDraft = null; S.meDirty = false;
     ordUnsub = db.collection(`restaurants/${rid}/orders`).orderBy("createdAt", "desc").limit(600).onSnapshot(
-      snap => { const before = new Set(S.orders.filter(o => o.status === "new").map(o => o.id)); S.orders = snap.docs.map(d => ({ ...d.data(), id: d.id }));
-        if (S.ordersReady && S.orders.some(o => o.status === "new" && !before.has(o.id))) beep(); S.ordersReady = true; paint(renderPanel); },
+      snap => { const before = new Set(S.orders.filter(o => o.status === "new" || o.status === "await").map(o => o.id)); S.orders = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (S.ordersReady && S.orders.some(o => (o.status === "new" || o.status === "await") && !before.has(o.id))) beep(); S.ordersReady = true; paint(renderPanel); },
       err => { console.error("OnRoute: pedidos", err); S.ordersReady = true; paint(renderPanel); }
     );
     myMenuUnsub = db.doc(`restaurants/${rid}/menu/main`).onSnapshot(s => { const d = s.exists ? s.data() : {}; S.myMenu = normMenu(d.items); S.myExtras = normExtras(d.extras); S.myMenuReady = true; if (!S.meDirty) { S.meDraft = null; } paint(renderPanel); }, () => { S.myMenuReady = true; paint(renderPanel); });
@@ -1596,7 +1678,7 @@
     ban.className = "banner " + (R.status === "suspended" ? "warn" : "info");
     ban.innerHTML = R.status === "suspended" ? "Tu negocio está suspendido y no aparece en OnRoute. Escríbenos para reactivarlo."
       : `<span><b>Tu negocio está en revisión.</b> Mientras tanto prepara tu menú y tu perfil; aparecerás en OnRoute en cuanto lo aprobemos.</span>${S.isAdmin ? '<button class="btn sm green" data-adm="active" data-id="' + esc(R.id) + '">Aprobar ahora</button>' : ""}`;
-    const today = S.orders.filter(o => o.createdAt >= todayStart() && !["pending", "cancelled"].includes(o.status));
+    const today = S.orders.filter(o => o.createdAt >= todayStart() && !["pending", "cancelled", "await"].includes(o.status));
     const sales = today.reduce((a, o) => a + num(o.total), 0);
     $("#sSales").textContent = "$" + Math.round(sales);
     $("#sOrders").textContent = today.length;
@@ -1611,10 +1693,18 @@
       : sold.length ? sold.map(m => `<div class="al">${I.alert}<span>${esc(m.name)}: <b class="low">AGOTADO</b></span></div>`).join("") : `<span class="okline">Todo el menú está disponible.</span>`);
     renderChart(today);
     const cols = [["new", "Nuevos"], ["prep", "En preparación"], ["ready", "Listos"]], act = { new: "Empezar", prep: "Marcar listo", ready: "Entregado" };
-    const active = S.orders.filter(o => ["new", "prep", "ready"].includes(o.status));
+    const waiting = S.orders.filter(o => o.status === "await").sort((a, b) => a.createdAt - b.createdAt);
+    const active = S.orders.filter(o => ["new", "prep", "ready", "await"].includes(o.status));
     active.forEach(o => chatWatch(S.my.id, o.id, o.delivery ? ["cb", "db"] : ["cb"], "business"));
     if (!S.chat) chatUnwatch(new Set(active.map(o => o.id)));
-    $("#board").innerHTML = cols.map(([k, l]) => { const list = active.filter(o => o.status === k).sort((a, b) => a.createdAt - b.createdAt); return `
+    $("#board").classList.toggle("has-await", !!waiting.length);
+    $("#board").innerHTML = (waiting.length ? `<div class="col await"><h3><span>Por confirmar</span><span class="mono">${waiting.length}</span></h3>${waiting.map(o => { const pre = (o.payParts || []).filter(p => p.m !== "cash"); return `<div class="order await">
+        <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small><button class="o-chat" data-chat="${esc(o.id)}" data-ch="cb" aria-label="Mensajes del pedido">💬${badge(unreadAll(o.id, ["cb"], "business"))}</button></div>
+        <ul>${(o.items || []).map(it => `<li>${num(Number(it.qty))} × ${esc(it.name)}</li>`).join("")}</ul>
+        ${o.note ? `<div class="onote"><b>Nota:</b> ${esc(o.note)}</div>` : ""}
+        <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.delivery ? " · a domicilio" : ""}</div>
+        <div class="onote pay"><b>Pago:</b> ${esc(payLine(o))}${pre.length ? `<br><small>Revisa en tu app de ${pre.map(p => PAYN[p.m]).join(" y ")} que te llegó ${money(pre.reduce((a, p) => a + num(p.amt), 0))} de ${esc(o.who)} (nota #${esc(o.num)}).</small>` : `<br><small>${o.delivery ? "El repartidor cobra en efectivo al entregar." : "Te paga en efectivo al recoger."}</small>`}</div>
+        <div class="o-acts"><button class="o-btn" data-oact="confirm" data-id="${esc(o.id)}" ${S.oactBusy === o.id ? "disabled" : ""}>${pre.length ? "Pago recibido" : "Aceptar pedido"}</button><button class="o-btn sec" data-oact="reject" data-id="${esc(o.id)}" ${S.oactBusy === o.id ? "disabled" : ""}>Rechazar</button></div></div>`; }).join("")}</div>` : "") + cols.map(([k, l]) => { const list = active.filter(o => o.status === k).sort((a, b) => a.createdAt - b.createdAt); return `
       <div class="col"><h3><span>${l}</span><span class="mono">${list.length}</span></h3>
       ${list.length ? list.map(o => `<div class="order ${k}">
         <div class="o-top"><b>#${esc(o.num)}</b><small>${ago(o.createdAt)}</small><button class="o-chat" data-chat="${esc(o.id)}" data-ch="cb" aria-label="Mensajes del pedido">💬${badge(unreadAll(o.id, o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"], "business"))}</button></div>
@@ -1624,9 +1714,18 @@
         ${o.reward ? `<div class="onote prize"><b>Premio:</b> ${esc(o.reward)} · ${rewardCheck(o)}</div>` : ""}
         <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup === "30" ? " · llega en 30 min" : ""}</div>
         ${o.delivery ? `<div class="onote dlv">${I.car} <b>A domicilio</b> · ${o.delivery.driverName ? `Repartidor: ${esc(o.delivery.driverName)}${o.delivery.driverCar ? " · " + esc(o.delivery.driverCar) : ""}${o.delivery.driverPlate ? " · " + esc(o.delivery.driverPlate) : ""}${o.delivery.status === "picked" ? " · ya lo recogió" : " · en camino al negocio"}` : "Buscando repartidor…"}</div>` : ""}
-        <span class="paychip ${o.paid ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : "Cobrar al entregar"}</span>${visitsOf(o) > 1 ? `<span class="paychip freq">Cliente frecuente · visita ${visitsOf(o)}</span>` : ""}
+        <span class="paychip ${o.paid || (o.paidOk && !cashOf(o)) ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : o.payParts ? (cashOf(o) ? `${cashOf(o) < o.total ? esc(payLine(o)) + " · " : ""}${o.delivery ? "el repartidor cobra" : "cobrar"} ${money(cashOf(o))} en efectivo` : `Pagado · ${esc(payLine(o))}`) : "Cobrar al entregar"}</span>${visitsOf(o) > 1 ? `<span class="paychip freq">Cliente frecuente · visita ${visitsOf(o)}</span>` : ""}
         ${o.delivery && k === "ready" ? `<button class="o-btn" disabled>Esperando al repartidor</button>` : `<button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button>`}</div>`).join("")
       : `<div class="empty">${k === "new" ? (S.ordersReady ? "Sin pedidos nuevos." : "Cargando…") : "Sin pedidos"}</div>`}</div>`; }).join("");
+  }
+  async function orderAct(oid, action) {
+    const o = S.orders.find(x => x.id === oid); if (!o) return;
+    if (action === "reject" && !confirm(`¿Rechazar el pedido #${o.num}? El cliente verá que no se confirmó.`)) return;
+    if (action === "confirm" && (o.payParts || []).some(p => p.m !== "cash") && !confirm(`¿Ya te llegó el pago de #${o.num} (${payLine(o)})?`)) return;
+    S.oactBusy = oid; paint(renderOrders);
+    try { await payApi("orderAction", { rid: S.my.id, oid, action }); toast(action === "confirm" ? `Pedido #${o.num} confirmado: ya está en Nuevos.` : `Pedido #${o.num} rechazado.`); }
+    catch (e) { toast(String(e.message || "No se pudo.").split(" Detalle:")[0]); }
+    S.oactBusy = null; paint(renderOrders);
   }
   function renderChart(today) {
     const box = $("#chartBox"), by = {};
@@ -1975,7 +2074,7 @@ Reglas:
   }
 
   // ---------- Promociones y clientes frecuentes (negocio)
-  const counted = o => !["pending", "cancelled"].includes(o.status);
+  const counted = o => !["pending", "cancelled", "await"].includes(o.status);
   // Número de visita de un cliente con cuenta (cuenta los pedidos cargados en el panel).
   function visitsOf(o) { return o.uid ? S.orders.filter(x => x.uid === o.uid && counted(x) && x.createdAt <= o.createdAt).length : 0; }
   function rewardCheck(o) {
@@ -2064,7 +2163,8 @@ Reglas:
   }
 
   // ---------- Perfil, ubicación y enlace
-  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)), dlvOn: !!(R.delivery && R.delivery.on), dlvRadius: (R.delivery && R.delivery.radius) || 5 }; S.pfDirty = false; } }
+  function pfEnsure() { if (!S.pf) { const R = S.my; S.pf = { name: R.name || "", kind: R.kind || "truck", cuisine: R.cuisine || "", description: R.description || "", phone: R.phone || "", address: R.address || "", lat: R.lat, lng: R.lng, hours: JSON.parse(JSON.stringify(hoursOf(R).days)), dlvOn: !!(R.delivery && R.delivery.on), dlvRadius: (R.delivery && R.delivery.radius) || 5,
+    payCash: !(R.payments && R.payments.cash === false), payCashDlv: !(R.payments && R.payments.cashDelivery === false), zelle: (R.payments && R.payments.zelle) || "", cashapp: (R.payments && R.payments.cashapp) || "" }; S.pfDirty = false; } }
   function renderProf() {
     const el = $("#pProf"), R = S.my;
     pfEnsure();
@@ -2099,8 +2199,15 @@ Reglas:
             ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Pagos con tarjeta</h4>
               <p class="hint">Tus clientes podrán pagar con tarjeta al pedir. El dinero llega directo a tu cuenta de banco; Stripe te cobra su comisión por cada pago y OnRoute no cobra nada.</p>
               <div id="pfStripe" class="sg"></div></div>` : ""}
-            ${window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Entrega a domicilio</h4>
-              <p class="hint">Repartidores de OnRoute llevan tus pedidos. El cliente paga el envío según las millas (desde ${money(DLV.minFee)}) y la propina; tú recibes el pago de la comida igual que siempre. Necesitas tener conectados los pagos con tarjeta.</p>
+            <div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Otras formas de pago</h4>
+              <p class="hint">Además de tarjeta, tus clientes pueden pagarte directo. Con Zelle o Cash App el pedido llega como <b>Por confirmar</b>: revisa que te llegó el dinero y toca <i>Pago recibido</i>; entonces entra a la cocina.</p>
+              <label class="dlv-sw"><input type="checkbox" id="pfCash"> <span>Efectivo al recoger</span></label>
+              <label class="dlv-sw"><input type="checkbox" id="pfCashDlv"> <span>Efectivo al entregar (lo cobra el repartidor, en pedidos a domicilio)</span></label>
+              <div class="field"><label for="pf-zelle">Zelle <span class="hint">(correo o teléfono registrado en Zelle; vacío = no aceptas)</span></label><input id="pf-zelle" data-pf="zelle" maxlength="80" placeholder="Ej. pagos@minegocio.com"></div>
+              <div class="field"><label for="pf-cashapp">Cash App <span class="hint">($cashtag; vacío = no aceptas)</span></label><input id="pf-cashapp" data-pf="cashapp" maxlength="21" placeholder="Ej. $MiNegocio" autocapitalize="off"></div>
+              <p class="hint">Toca <b>Guardar perfil</b> para aplicar los cambios.</p></div>
+            ${window.ONROUTE_API ? `<div class="kcard" style="display:flex;flex-direction:column;gap:10px"><h4>Entrega a domicilio</h4>
+              <p class="hint">Repartidores de OnRoute llevan tus pedidos. El cliente paga el envío según las millas (desde ${money(DLV.minFee)}) y la propina. Con tarjeta todo es automático; con Zelle, Cash App o efectivo, OnRoute lleva las cuentas en <i>Saldos</i> y se liquidan cada semana.</p>
               <label class="dlv-sw"><input type="checkbox" id="pfDlvOn"> <span>Ofrecer entrega a domicilio</span></label>
               <div class="field"><label for="pfDlvR">Hasta qué distancia entregas</label><select id="pfDlvR">${[2, 3, 5, 8].map(n => `<option value="${n}">${n} millas</option>`).join("")}</select></div>
               <p class="hint" id="pfDlvNote"></p></div>` : ""}
@@ -2109,7 +2216,7 @@ Reglas:
               <span class="hint">Imprime el QR y pégalo en tu ventanilla o mesas.</span></div></div></div>
             <div class="kcard session" style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px"><span class="hint">Sesión: ${esc(S.user.email || "")}</span><div style="display:flex;gap:8px;flex-wrap:wrap"><button class="btn sec sm" data-pick="cliente">${I.food} Pedir comida (modo cliente)</button><button class="btn sec sm" data-auth="logout">Cerrar sesión</button></div></div>
           </div></div>`;
-      ["name", "cuisine", "description", "phone", "address"].forEach(k => { const i = el.querySelector(`[data-pf="${k}"]`); if (i) i.value = P[k] || ""; });
+      ["name", "cuisine", "description", "phone", "address", "zelle", "cashapp"].forEach(k => { const i = el.querySelector(`[data-pf="${k}"]`); if (i) i.value = P[k] || ""; });
       try { const qr = qrcode(0, "M"); qr.addData(link); qr.make(); $("#pfQR").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); } catch (e) { $("#pfQR").textContent = "QR no disponible"; }
       $("#pfLogoIn").addEventListener("change", async e => {
         const f = e.target.files && e.target.files[0]; if (!f) return;
@@ -2130,8 +2237,9 @@ Reglas:
     }
     $("#pfLogo").innerHTML = logoHTML(R);
     const dOn = $("#pfDlvOn"), dR = $("#pfDlvR"), dN = $("#pfDlvNote");
-    if (dOn) { dOn.checked = !!P.dlvOn; dOn.disabled = !R.stripeReady && !P.dlvOn; dR.value = String(P.dlvRadius); dR.disabled = !P.dlvOn;
-      dN.textContent = !R.stripeReady ? "Primero conecta tus pagos con tarjeta (arriba)." : P.dlvOn ? "Toca Guardar perfil para aplicar los cambios." : ""; if (!S.pfDirty) dN.textContent = !R.stripeReady ? dN.textContent : (R.delivery && R.delivery.on ? "Activa: tus clientes ven la opción A domicilio." : ""); }
+    if (dOn) { dOn.checked = !!P.dlvOn; dR.value = String(P.dlvRadius); dR.disabled = !P.dlvOn;
+      dN.textContent = P.dlvOn && !R.stripeReady && !P.payCashDlv && !P.zelle.trim() && !P.cashapp.trim() ? "Para entregar necesitas tarjeta, efectivo al entregar, Zelle o Cash App." : S.pfDirty ? (P.dlvOn ? "Toca Guardar perfil para aplicar los cambios." : "") : (R.delivery && R.delivery.on ? "Activa: tus clientes ven la opción A domicilio." : ""); }
+    const pc1 = $("#pfCash"), pc2 = $("#pfCashDlv"); if (pc1) { pc1.checked = !!P.payCash; pc2.checked = !!P.payCashDlv; }
     const sp = $("#pfStripe");
     if (sp) { const h = stripeGuideHTML(R); if (sp.dataset.h !== h) { const open = $$("details[data-sg]", sp).filter(d => d.open).map(d => d.dataset.sg); sp.innerHTML = h; sp.dataset.h = h; open.forEach(k => { const d = sp.querySelector(`details[data-sg="${k}"]`); if (d) d.open = true; }); } }
     if (sp && R.stripeAccount && !R.stripeReady && !S.stripeInfo && !S.stripeBusy && !S.stripeAuto) { S.stripeAuto = true; setTimeout(() => stripeStatus(true), 0); }
@@ -2264,6 +2372,9 @@ Reglas:
     const upd = { name: P.name.trim().slice(0, 60), kind: P.kind, cuisine: P.cuisine.trim().slice(0, 60), description: P.description.trim().slice(0, 300), phone: P.phone.trim().slice(0, 30), address: P.address.trim().slice(0, 120), updatedAt: Date.now() };
     const bad = P.hours.findIndex(d => !d.closed && (!okT(d.open) || !okT(d.close) || d.open === d.close));
     if (bad >= 0) { S.pfMsg = `Falta revisar el horario del ${DAYS[bad].toLowerCase()}.`; paint(renderProf); return; }
+    const zl = String(P.zelle || "").trim().slice(0, 80), ca = String(P.cashapp || "").trim().replace(/^\$?/, "$").replace(/[^$A-Za-z0-9_-]/g, "").slice(0, 21);
+    if (ca.length === 1 && String(P.cashapp || "").trim()) { S.pfMsg = "Revisa tu $cashtag de Cash App."; paint(renderProf); return; }
+    upd.payments = { cash: !!P.payCash, cashDelivery: !!P.payCashDlv, zelle: zl, cashapp: ca.length > 1 ? ca : "" };
     upd.delivery = { on: !!P.dlvOn, radius: Math.min(8, Math.max(1, Number(P.dlvRadius) || 5)) };
     upd.hours = { tz: TZ, days: P.hours.map(d => d.closed ? { closed: true } : { open: d.open, close: d.close }) };
     if (typeof P.lat === "number") { upd.lat = P.lat; upd.lng = P.lng; }
@@ -2449,11 +2560,23 @@ Reglas:
       if (!admDlvUnsub) admDlvUnsub = db.collection("deliveries").orderBy("createdAt", "desc").limit(60).onSnapshot(sn => { S.admDlv = sn.docs.map(x => ({ id: x.id, ...x.data() })); paint(renderAdmin); }, e => { console.warn(e); S.admDlv = []; paint(renderAdmin); });
       const L2 = S.admDlv, lab = { searching: "Buscando repartidor", assigned: "Repartidor en camino al negocio", picked: "En camino al cliente", delivered: "Entregado" };
       const t0 = todayStart(), td = (L2 || []).filter(x => x.status === "delivered" && (x.deliveredAt || 0) >= t0);
+      if (!ledUnsub) ledUnsub = db.collection("deliveries").where("payout", "==", "ledger").limit(500).onSnapshot(sn => { S.ledger = sn.docs.map(x => ({ id: x.id, ...x.data() })); paint(renderAdmin); }, e => { console.warn(e); S.ledger = []; });
+      const bz = {}, dv = {};
+      (S.ledger || []).forEach(x => { const st = x.settle || {};
+        if (!x.settledBiz) { const o = bz[x.rid] = bz[x.rid] || { name: x.rname, sum: 0, ids: [] }; o.sum = r2(o.sum + num(st.biz)); o.ids.push(x.id); }
+        if (!x.settledDrv && x.driverUid) { const o = dv[x.driverUid] = dv[x.driverUid] || { sum: 0, ids: [] }; o.sum = r2(o.sum + num(st.drv)); o.ids.push(x.id); } });
+      const balRow = (key, kind, name, o, sub) => `<div class="adm-row drow"><span class="rlogo">${kind === "biz" ? I.store : I.car}</span><div style="min-width:0"><b>${esc(name)} · <span class="mono">${o.sum > 0 ? "te debe " + money(o.sum) : o.sum < 0 ? "le debes " + money(-o.sum) : "a mano"}</span></b><span>${o.ids.length} entrega${o.ids.length === 1 ? "" : "s"} pagada${o.ids.length === 1 ? "" : "s"} a mano${sub ? " · " + sub : ""}</span></div>
+        <div class="acts"><button class="btn sm green" data-act="settle" data-kind="${kind}" data-id="${esc(key)}">Marcar saldado</button></div></div>`;
+      const ledHTML = Object.keys(bz).length || Object.keys(dv).length ? `<div class="kcard"><h4>Saldos de pagos a mano (Zelle, Cash App, efectivo)</h4>
+        <p class="hint">En entregas pagadas a mano el dinero no pasa por Stripe: el negocio recibe Zelle/Cash App y el repartidor cobra el efectivo. Aquí ves quién le debe a quién. Cuando se paguen (por Zelle, Cash App o en persona), toca <i>Marcar saldado</i>.</p>
+        ${Object.entries(bz).map(([rid, o]) => balRow(rid, "biz", o.name || rid, o, "negocio")).join("")}
+        ${Object.entries(dv).map(([uid, o]) => { const d = S.drivers.find(x => x.id === uid) || {}, P = d.payout || {}; return balRow(uid, "drv", d.name || "Repartidor", o, P.app ? esc(PAY_APPS[P.app][0]) + " " + esc(P.handle || "") : "repartidor"); }).join("")}</div>` : "";
       el.innerHTML = `<div class="ptitle"><h3>Entregas a domicilio</h3><p>Todas las entregas en vivo. OnRoute se queda con el ${Math.round((1 - DLV.driverShare) * 100)}% del envío; el repartidor recibe el resto más la propina.</p></div>
         <div class="tiles three"><div class="tile t-blue"><b class="mono">${(L2 || []).filter(x => x.status === "searching").length}</b><small>Buscando repartidor</small></div><div class="tile t-purple"><b class="mono">${(L2 || []).filter(x => ["assigned", "picked"].includes(x.status)).length}</b><small>En curso</small></div><div class="tile t-gold"><b class="mono">${money(td.reduce((n, x) => n + (x.fee || 0) * (1 - DLV.driverShare), 0))}</b><small>Ganancia de OnRoute hoy</small></div></div>
+        ${ledHTML}
         <div class="kcard">${!L2 ? `<div class="empty">Cargando…</div>` : !L2.length ? `<div class="empty">Todavía no hay entregas.</div>` : L2.map(x => `<div class="adm-row drow"><span class="rlogo">${I.car}</span>
           <div style="min-width:0"><b>${esc(x.rname)} · #${esc(x.num)}</b><span>${esc(lab[x.status] || x.status)}${x.driverName ? " · " + esc(x.driverName) : ""} · ${x.miles ? x.miles.toFixed(1) + " mi" : ""} · ${ago(x.createdAt || 0)}</span>
-            <span>Envío ${money(x.fee || 0)} · propina ${money(x.tip || 0)} · al repartidor ${money(x.driverPay || 0)}${x.status === "delivered" ? ` · pago: ${x.payout === "paid" ? "hecho" : "pendiente"}${x.payoutErr ? " (" + esc(x.payoutErr) + ")" : ""}` : ""}</span></div>
+            <span>${x.pay === "manual" ? `A mano${x.collect ? " · efectivo " + money(x.collect) : ""} · ` : ""}Envío ${money(x.fee || 0)} · propina ${money(x.tip || 0)} · al repartidor ${money(x.driverPay || 0)}${x.status === "delivered" ? ` · pago: ${x.payout === "paid" ? "hecho" : x.payout === "ledger" ? "en saldos" : x.payout === "settled" ? "saldado" : "pendiente"}${x.payoutErr ? " (" + esc(x.payoutErr) + ")" : ""}` : ""}</span></div>
           <div class="acts">${x.status === "searching" && Date.now() - (x.createdAt || 0) > 20 * 60000 ? `<span class="chip">Más de 20 min sin repartidor</span>` : ""}</div></div>`).join("")}</div>`;
     } else if (S.admTab === "sup") {
       const L3 = (S.sup || []).slice().sort((a, b) => (a.status === "open" ? 0 : 1) - (b.status === "open" ? 0 : 1) || num(b.createdAt) - num(a.createdAt));
@@ -2481,13 +2604,27 @@ Reglas:
         : `<p class="hint">Primero registra tu negocio en <a href="./#panel" data-nav="panel">Mi negocio</a> para poder importar el menú de Tortas Tortuga.</p>`}</div>`;
     }
   }
+  async function settleLedger(kind, key) {
+    const list = (S.ledger || []).filter(x => kind === "biz" ? x.rid === key && !x.settledBiz : x.driverUid === key && !x.settledDrv);
+    if (!list.length || !confirm(`¿Marcar como saldadas ${list.length} entrega(s)? Hazlo cuando ya se haya pagado el dinero.`)) return;
+    try {
+      const b = db.batch ? db.batch() : null, now = Date.now();
+      for (const x of list) {
+        const upd = kind === "biz" ? { settledBiz: true } : { settledDrv: true };
+        if (kind === "biz" ? x.settledDrv : x.settledBiz) { upd.payout = "settled"; upd.payoutAt = now; }
+        if (b) b.update(db.doc(`deliveries/${x.id}`), upd); else await db.doc(`deliveries/${x.id}`).update(upd);
+      }
+      if (b) await b.commit();
+      toast("Saldo marcado como pagado.");
+    } catch (e) { console.error(e); toast("No se pudo guardar."); }
+  }
   async function loadStats() {
     S.statsBusy = true; paint(renderAdmin);
     const t0 = todayStart(), rows = [];
     try {
       for (const r of S.all.filter(x => x.status === "active")) {
         const snap = await db.collection(`restaurants/${r.id}/orders`).where("createdAt", ">=", t0).get();
-        const os = snap.docs.map(d => d.data()).filter(o => o.createdAt >= t0 && !["pending", "cancelled"].includes(o.status));
+        const os = snap.docs.map(d => d.data()).filter(o => o.createdAt >= t0 && !["pending", "cancelled", "await"].includes(o.status));
         if (os.length) rows.push({ r, count: os.length, sales: os.reduce((a, o) => a + num(o.total), 0) });
       }
       rows.sort((a, b) => b.sales - a.sales);
@@ -2546,7 +2683,8 @@ Reglas:
     if (d.tip !== undefined && t.closest(".tips")) { S.tip = Number(d.tip) || 0; paint(renderRest); return; }
     if (d.sug !== undefined) { const x = (S.dlvSug || [])[Number(d.sug)]; if (x) { S.dlv = { ...(S.dlv || {}), address: x.label, lat: x.lat, lng: x.lng }; S.dlvSug = []; S.dlvMsg = ""; ls.set("onroute-dlv", S.dlv); paint(renderRest); } return; }
     if (d.act === "dlvhere") { dlvHere(); return; }
-    if (d.paymode) { S.payMode = d.paymode; paint(renderRest); return; }
+    if (d.paymode) { S.payMode = d.paymode; S.payErr = ""; paint(renderRest); return; }
+    if (d.oact) { orderAct(d.id, d.oact); return; }
     if (d.act === "pay") { unlockAudio(); placeOrder(); return; }
     if (d.act === "notify") { askNotify(); return; }
     if (d.act === "promo") {
@@ -2568,6 +2706,7 @@ Reglas:
     if (d.again) { const o = S.hist.find(x => x.id === d.again); if (o && o.cart) { ls.set(`onroute-last-${o.rid}`, { cart: o.cart, name: (S.profile && S.profile.name) || "", at: o.createdAt }); ss.del(`onroute-my-${o.rid}`); go("rest", o.rid); } return; }
     if (d.admtab) { S.admTab = d.admtab; paint(renderAdmin); return; }
     if (d.act === "stats") { loadStats(); return; }
+    if (d.act === "settle") { settleLedger(d.kind, d.id); return; }
     if (d.regkind) { S.reg.kind = d.regkind; paint(renderPanel); return; }
     if (d.act === "register") { register(); return; }
     if (d.ktab) { S.ktab = d.ktab; if (d.ktab !== "menu") S.meMsg = ""; paint(renderPanel); setTimeout(() => pfMap && pfMap.invalidateSize(), 50); return; }
@@ -2635,6 +2774,7 @@ Reglas:
     const t = e.target, d = t.dataset;
     if (t.id === "nameInput") { S.name = t.value; return; }
     if (t.id === "noteInput") { S.note = t.value; return; }
+    if (t.id === "splitAmt") { S.split = { ...(S.split || {}), amt: t.value.replace(/[^0-9.]/g, "") }; const { tot } = cartTotals(), a = r2(num(Number(S.split.amt))), r = $("#splitRest"); if (r) r.textContent = a > 0 && tot - a > 0 ? money(r2(tot - a)) : "el resto"; return; }
     if (t.id === "chatIn") { S.chatDraft = t.value; return; }
     if (t.id === "dlvAddr") { S.dlv = { ...(S.dlv || {}), address: t.value }; delete S.dlv.lat; delete S.dlv.lng; addrSearch(t.value); return; }
     if (d.dlv) { S.dlv = { ...(S.dlv || {}), [d.dlv]: t.value }; return; }
@@ -2668,6 +2808,8 @@ Reglas:
       toDataUrl(f, 1400, 380000).then(u => { S.drvLic = u; S.drvMsg = ""; paint(renderDriver); }).catch(e => { S.drvMsg = photoErr(e); paint(renderDriver); });
       return;
     }
+    if (t.id === "splitA" || t.id === "splitB") { S.split = { ...(S.split || {}), [t.id === "splitA" ? "a" : "b"]: t.value }; paint(renderRest); return; }
+    if (t.id === "pfCash" || t.id === "pfCashDlv") { pfEnsure(); S.pf[t.id === "pfCash" ? "payCash" : "payCashDlv"] = t.checked; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar los cambios."; paint(renderProf); return; }
     if (t.id === "pfDlvOn") { pfEnsure(); S.pf.dlvOn = t.checked; S.pfDirty = true; paint(renderProf); return; }
     if (t.id === "pfDlvR") { pfEnsure(); S.pf.dlvRadius = Number(t.value) || 5; S.pfDirty = true; paint(renderProf); return; }
     if (d.hopen !== undefined) { pfEnsure(); S.pf.hours[Number(d.hopen)] = t.checked ? { open: "10:00", close: "18:00" } : { closed: true }; S.pfDirty = true; S.pfMsg = "Toca Guardar perfil para aplicar el horario."; paint(renderProf); return; }

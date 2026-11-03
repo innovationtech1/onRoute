@@ -876,3 +876,32 @@ body:not([data-app="panel"]):not([data-app="admin"]):not([data-app="driver"]) .m
 .sup-reply{margin:0;padding:10px 12px;border-radius:12px;background:var(--info-bg);color:var(--fg);white-space:pre-wrap}
 .sup-row textarea{width:100%;border:1px solid var(--line);border-radius:12px;padding:10px;background:var(--surface-2);resize:vertical}
 .sup-row .acts{display:flex;gap:8px;justify-content:flex-end}
+
+/* ---------- Formas de pago: Zelle, Cash App, efectivo y combinados ---------- */
+.choices.pays{grid-template-columns:repeat(auto-fit,minmax(130px,1fr))}
+.split{margin-top:10px;padding:12px;border:1px dashed var(--line);border-radius:14px;display:flex;flex-direction:column;gap:8px}
+.split-row{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px;align-items:center}
+.split-row select{border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:10px;color:var(--fg)}
+.split-amt{display:flex;align-items:center;gap:4px;border:1px solid var(--line);background:var(--surface-2);border-radius:12px;padding:0 10px}
+.split-amt input{border:0;background:none;padding:10px 0;width:100%;min-width:0;font-family:var(--f-mono)}
+.split-row b{text-align:right;padding-right:10px}
+.paybox{display:flex;flex-direction:column;gap:6px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--surface);text-align:left}
+.paybox code{font-family:var(--f-mono);font-size:15px;font-weight:700;word-break:break-all}
+.payto{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.payto code{flex:1;min-width:0;padding:8px 10px;border-radius:10px;background:var(--surface-2)}
+.board.has-await{grid-template-columns:repeat(4,minmax(0,1fr))}
+@media (max-width:640px){.board.has-await{grid-template-columns:minmax(0,1fr)}}
+.col.await{background:color-mix(in srgb,var(--gold) 16%,var(--surface-2))}
+.order.await{border-color:var(--gold)}
+.onote.pay small{color:var(--muted)}
+.o-acts{display:grid;grid-template-columns:1fr auto;gap:6px}
+.o-btn.sec{background:transparent;border:1px solid var(--line);color:inherit}
+.dcash{padding:10px 12px;border-radius:12px;background:var(--warn-bg);color:var(--warn);font-weight:600}
+.dcash.ok{background:var(--ok-bg);color:var(--ok)}
+.dcash-s{color:var(--warn)!important;font-weight:700}
+.dbal p{margin:0 0 6px}
+.dbal.owe{border-color:var(--gold)}
+.split-row{grid-template-columns:minmax(0,1fr) minmax(0,120px)}
+.split-amt{min-width:0;overflow:hidden}
+.split-amt:focus-within{border-color:var(--green)}
+.split-amt input:focus-visible{outline:none}

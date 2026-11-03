@@ -3,21 +3,8 @@
 //  - checkout.session.expired: el pedido pendiente se cancela.
 //  - account.updated: el negocio terminó (o no) de configurar su cuenta para cobrar con tarjeta.
 const { db, stripe, RID } = require("../lib/onroute");
+const { publishDelivery } = require("../lib/order");
 
-// Pedido a domicilio pagado: se publica para que los repartidores en línea lo vean.
-// Los datos exactos del cliente van aparte (private/info) y solo los ve el repartidor que acepta.
-async function publishDelivery(rid, orderId, o, now) {
-  const rs = await db().doc(`restaurants/${rid}`).get(), R = rs.exists ? rs.data() : {};
-  const from = R.kind === "truck" && R.loc && typeof R.loc.lat === "number" ? { lat: R.loc.lat, lng: R.loc.lng } : { lat: R.lat, lng: R.lng };
-  const D = o.delivery, ref = db().doc(`deliveries/${orderId}`);
-  await ref.set({ rid, oid: orderId, rname: String(R.name || rid).slice(0, 60), num: o.num,
-    pickup: { lat: from.lat, lng: from.lng, address: String(R.address || (R.loc && R.loc.stop) || "").slice(0, 120), phone: String(R.phone || "").slice(0, 30) },
-    drop: { lat: Math.round(D.lat * 100) / 100, lng: Math.round(D.lng * 100) / 100, area: String(D.address || "").split(",").slice(1, 2).join("").trim().slice(0, 40) },
-    miles: D.miles, fee: D.fee, tip: D.tip, driverPay: D.driverPay, items: (o.items || []).reduce((a, it) => a + (Number(it.qty) || 0), 0),
-    status: "searching", kitchen: "new", driverUid: null, payout: "none", createdAt: now, paidAt: now });
-  await ref.collection("private").doc("info").set({ name: o.who, phone: D.phone, address: D.address, unit: D.unit || "", notes: D.notes || "", lat: D.lat, lng: D.lng });
-  await db().doc(`restaurants/${rid}/orders/${orderId}`).update({ "delivery.status": "searching" });
-}
 
 exports.handler = async event => {
   if (event.httpMethod !== "POST") return { statusCode: 405, body: "Usa POST" };

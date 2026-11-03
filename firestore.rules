@@ -21,7 +21,7 @@ service cloud.firestore {
     // Datos del perfil que el dueño puede cambiar (nunca status ni ownerUid).
     function profileKeys() {
       return ['name','kind','cuisine','description','phone','address','lat','lng','logoUrl',
-              'paused','menuNote','variant','loc','hours','promos','loyalty','delivery','updatedAt'];
+              'paused','menuNote','variant','loc','hours','promos','loyalty','delivery','payments','updatedAt'];
     }
     function validProfile(d) {
       return d.name is string && d.name.size() >= 2 && d.name.size() <= 60
@@ -34,6 +34,11 @@ service cloud.firestore {
         // Entrega a domicilio con repartidores de OnRoute (radio en millas, máximo 8).
         && (!('delivery' in d) || (d.delivery is map && d.delivery.keys().hasOnly(['on','radius'])
             && d.delivery.on is bool && d.delivery.radius is number && d.delivery.radius > 0 && d.delivery.radius <= 8))
+        // Formas de pago a mano: efectivo, Zelle y Cash App (los datos que el cliente ve para pagarle).
+        && (!('payments' in d) || (d.payments is map && d.payments.keys().hasOnly(['cash','cashDelivery','zelle','cashapp'])
+            && d.payments.cash is bool && d.payments.cashDelivery is bool
+            && d.payments.zelle is string && d.payments.zelle.size() <= 80
+            && d.payments.cashapp is string && d.payments.cashapp.size() <= 21))
         // Promociones (máximo 10) y tarjeta de cliente frecuente.
         && (!('promos' in d) || (d.promos is list && d.promos.size() <= 10))
         && (!('loyalty' in d) || (d.loyalty is map && d.loyalty.keys().hasOnly(['on','every','reward'])
@@ -140,8 +145,11 @@ service cloud.firestore {
       allow update: if (signedIn() && resource.data.driverUid == request.auth.uid
           && resource.data.status in ['assigned','picked']
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['driverLoc']))
-        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['payout','payoutAt'])
-          && request.resource.data.payout == 'paid_manual')
+        // Admin: marca pagos a mano a repartidores y salda las cuentas de entregas pagadas a mano.
+        || (isAdmin() && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['payout','payoutAt','settledBiz','settledDrv'])
+          && request.resource.data.payout in ['paid_manual','settled','ledger']
+          && (!('settledBiz' in request.resource.data) || request.resource.data.settledBiz is bool)
+          && (!('settledDrv' in request.resource.data) || request.resource.data.settledDrv is bool))
         || (isOwnerOf(resource.data.rid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kitchen'])
           && request.resource.data.kitchen in ['new','prep','ready','done']);

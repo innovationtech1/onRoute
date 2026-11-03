@@ -146,7 +146,17 @@ function restPos(r) {
 // Paga al repartidor (transferencia de Stripe desde la cuenta de OnRoute). Si todavía no hay saldo disponible,
 // queda "pending" y la función programada payDrivers lo vuelve a intentar cada hora.
 async function payDriver(ref, d) {
-  if (!d || d.payout === "paid" || !(d.driverPay > 0)) return "skip";
+  if (!d || d.payout === "paid" || d.payout === "ledger" || d.payout === "settled") return "skip";
+  // Entrega pagada a mano (Zelle, Cash App o efectivo): el dinero no pasó por Stripe. Queda en "Saldos":
+  //   el repartidor cobró `collect` en efectivo y se gana `driverPay` → debe (collect − driverPay) a OnRoute (negativo: OnRoute le debe).
+  //   el negocio recibió `prepaid` por Zelle/Cash App y le toca `food` → debe (prepaid − food) a OnRoute (negativo: OnRoute le debe).
+  // La suma de las dos es la parte de OnRoute del envío.
+  if (d.pay === "manual") {
+    const drv = r2((Number(d.collect) || 0) - (Number(d.driverPay) || 0)), biz = r2((Number(d.prepaid) || 0) - (Number(d.food) || 0));
+    await ref.update({ payout: "ledger", settle: { drv, biz }, payoutErr: null });
+    return "ledger";
+  }
+  if (!(d.driverPay > 0)) return "skip";
   const ds = await db().doc(`drivers/${d.driverUid}`).get(), D = ds.exists ? ds.data() : null;
   // Repartidor que cobra por Cash App, Zelle o Venmo: queda "por pagar" y el administrador se lo manda a mano.
   if (D && D.payout && D.payout.method === "manual") { if (d.payout !== "manual") await ref.update({ payout: "manual", payoutApp: D.payout.app || "", payoutErr: null }); return "manual"; }
