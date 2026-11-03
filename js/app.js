@@ -753,7 +753,7 @@
   function dlvStatusHTML(o) {
     const D = o.delivery, ds = D.status, live = S.mineDlv;
     const steps = [["Pedido recibido", "El negocio ya lo tiene"], ["Preparando tu comida", o.status === "ready" || o.status === "done" ? "Listo en la cocina" : "En la cocina"],
-      ["Repartidor asignado", D.driverName ? `${D.driverName}${D.driverCar ? " · " + D.driverCar : ""}${D.driverPlate ? " · " + D.driverPlate : ""}` : "Buscando un repartidor cerca"], ["En camino a tu casa", "Ya recogió tu pedido"], ["Entregado", "¡Buen provecho!"]];
+      ["Repartidor asignado", D.driverName ? `${D.driverName}${D.driverCar ? " · " + D.driverCar : ""}${D.driverPlate ? " · " + D.driverPlate : ""}${D.arrivedAt && ds === "assigned" ? " · ya llegó al negocio" : ""}` : "Buscando un repartidor cerca"], ["En camino a tu casa", "Ya recogió tu pedido"], ["Entregado", "¡Buen provecho!"]];
     const idx = ds === "delivered" ? 4 : ds === "picked" ? 3 : ds === "assigned" ? (o.status === "prep" || o.status === "ready" || o.status === "done" ? 2 : 2) : o.status === "prep" || o.status === "ready" ? 1 : 0;
     const title = ds === "delivered" ? "¡Pedido entregado!" : ds === "picked" ? "¡Va en camino!" : ds === "assigned" ? `${esc(D.driverName || "Tu repartidor")} va por tu pedido` : "Gracias, " + esc(o.who);
     setTimeout(drawDlvMap, 30);
@@ -763,7 +763,7 @@
       ${ds === "delivered" ? "" : notifyHTML({ ...o, status: "prep" }).replace(/cuando esté listo/g, "cuando vaya en camino y cuando llegue")}
       ${(ds === "assigned" || ds === "picked") ? `<div class="dlv-map" id="dlvMap"></div>${live && live.driverLoc ? `<p class="hint">Ubicación del repartidor ${ago(live.driverLoc.t || Date.now())}.</p>` : `<p class="hint">Verás al repartidor en el mapa cuando comparta su ubicación.</p>`}` : ""}
       <ol class="steps">${steps.map((x, i) => { const done = i < idx || (i === 4 && idx === 4); return `<li class="${done ? "done" : i === idx ? "now" : ""}"><span class="dot">${done ? "✓" : i + 1}</span><div><b>${x[0]}</b><small>${esc(x[1])}</small></div></li>`; }).join("")}</ol>
-      ${ds !== "delivered" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Negocio")}${ds === "picked" || (chatData[ckey(o.id, "dc")] || []).length ? chatBtn(o.id, "dc", "customer", "Repartidor", "hot") : ""}</div>` : ""}
+      ${ds !== "delivered" ? `<div class="chat-row">${chatBtn(o.id, "cb", "customer", "Negocio")}${ds === "assigned" || ds === "picked" || (chatData[ckey(o.id, "dc")] || []).length ? chatBtn(o.id, "dc", "customer", "Repartidor", "hot") : ""}</div>` : ""}
       <div class="onote"><b>Entrega en:</b> ${esc(D.address)}${D.unit ? " · " + esc(D.unit) : ""}</div>
       <div class="points"><span>Comida ${money(o.food || 0)} · envío ${money(D.fee)}${D.tip ? ` · propina ${money(D.tip)}` : ""}</span><strong class="mono">${money(o.total)}</strong></div>
       <button class="ghost" data-act="neworder">Hacer otro pedido</button></div>`;
@@ -935,7 +935,7 @@
   // ================================================================ CENTRO DE AYUDA, MENÚ Y SOPORTE
   let supUnsub = null, mySupUnsub = null;
   const SUP_TOPICS = { order: "Un pedido", pay: "Pago o reembolso", biz: "Mi negocio", drv: "Repartidor / entregas", acct: "Mi cuenta", bug: "La app no funciona bien", other: "Otro" };
-  const APP_VER = "1.37";
+  const APP_VER = "1.39";
   let docsCache = null;
   function helpDocs() { if (!docsCache) docsCache = typeof window.ONROUTE_DOCS === "function" ? window.ONROUTE_DOCS(DLV) : []; return docsCache; }
   function renderHelp() {
@@ -1281,7 +1281,7 @@
     if (action === "delivered" && !confirm("¿Entregaste el pedido al cliente?")) return;
     if (action === "release" && !confirm("¿Soltar esta entrega para que la tome otro repartidor?")) return;
     S.drvActBusy = id; paint(renderDriver);
-    try { const j = await payApi("deliveryAction", { id, action }); if (action === "accept") toast("¡Entrega aceptada! Ve al negocio."); if (action === "delivered") toast(j.payout === "paid" ? "¡Entregado! Tu pago ya va en camino a tu cuenta." : j.payout === "manual" ? "¡Entregado! Se suma a tu pago de la semana." : "¡Entregado! Tu pago se procesa en las próximas horas."); }
+    try { const j = await payApi("deliveryAction", { id, action }); if (action === "accept") toast("¡Entrega aceptada! Ve al negocio."); if (action === "arrived") toast("Listo: el negocio ya sabe que llegaste."); if (action === "delivered") toast(j.payout === "paid" ? "¡Entregado! Tu pago ya va en camino a tu cuenta." : j.payout === "manual" ? "¡Entregado! Se suma a tu pago de la semana." : "¡Entregado! Tu pago se procesa en las próximas horas."); }
     catch (e) { toast(String(e.message || "No se pudo.").split(" Detalle:")[0]); }
     S.drvActBusy = null; paint(renderDriver);
   }
@@ -1292,13 +1292,16 @@
     let cur = "";
     if (D.current && C && ["assigned", "picked"].includes(C.status)) {
       const P = C.pickup || {};
-      setTimeout(() => chatWatch(C.rid, C.id, C.status === "picked" ? ["db", "dc"] : ["db"], "driver"), 0);
+      setTimeout(() => chatWatch(C.rid, C.id, ["db", "dc"], "driver"), 0);
       cur = C.status === "assigned" ? `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 1 de 2 · Recoger</span><b class="mono">${money(C.driverPay)}</b></div>
           <h3>${esc(C.rname)}</h3><p class="hint">${esc(P.address || "")}${P.phone ? " · " + esc(P.phone) : ""}</p>
           <div class="dkit ${C.kitchen === "ready" ? "ok" : ""}">${C.kitchen === "ready" ? "✓ " : "⏳ "}${kitchenTxt(C.kitchen)} · Pedido <b class="mono">#${esc(C.num)}</b> · ${C.items || ""} producto(s)</div>
           <div class="sg-btns"><a class="btn sec" target="_blank" rel="noopener" href="${mapsLink(P.lat, P.lng)}">${I.pin} Cómo llegar</a>${P.phone ? `<a class="btn sec" href="tel:${esc(P.phone.replace(/[^\d+]/g, ""))}">Llamar al negocio</a>` : ""}</div>
-          <div class="chat-row">${chatBtn(C.id, "db", "driver", "Escribir al negocio")}</div>
-          <button class="btn green big" data-dact="picked" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Ya recogí el pedido #${esc(C.num)}</button>
+          <div class="chat-row">${chatBtn(C.id, "db", "driver", "Escribir al negocio")}${chatBtn(C.id, "dc", "driver", "Escribir al cliente")}</div>
+          ${C.arrivedAt ? `<div class="dkit ok">📍 Le avisaste al negocio que llegaste · ${ago(C.arrivedAt)}</div>
+            <button class="btn green big" data-dact="picked" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Ya recogí el pedido #${esc(C.num)}</button>`
+          : `<button class="btn green big" data-dact="arrived" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>📍 Llegué al negocio</button>
+            <button class="btn sec" data-dact="picked" data-id="${esc(C.id)}" ${busy ? "disabled" : ""}>Ya recogí el pedido #${esc(C.num)}</button>`}
           <button class="linkbtn" data-dact="release" data-id="${esc(C.id)}">No puedo hacerla · soltar entrega</button></div>`
         : `<div class="kcard dcur"><div class="dcur-h"><span class="chip cdot open">Paso 2 de 2 · Entregar</span><b class="mono">${money(C.driverPay)}</b></div>
           <h3>${esc(Inf.name || "Cliente")}</h3><p><b>${esc(Inf.address || "")}</b>${Inf.unit ? `<br>${esc(Inf.unit)}` : ""}</p>
@@ -1379,8 +1382,8 @@
     if (!el) { el = document.createElement("div"); el.id = "chatSheet"; el.className = "chat-sheet"; el.setAttribute("role", "dialog"); el.setAttribute("aria-modal", "true"); document.body.appendChild(el); }
     const c = S.chat;
     // Los canales se recalculan en vivo (por ejemplo, el chat con el repartidor aparece en cuanto recoge el pedido).
-    if (c.role === "customer" && S.mine && S.mine.id === c.oid) { const ds = S.mine.delivery && S.mine.delivery.status; c.chs = ds === "picked" || (chatData[ckey(c.oid, "dc")] || []).length ? ["dc", "cb"] : ["cb"]; }
-    if (c.role === "driver" && S.cur && S.cur.id === c.oid) c.chs = S.cur.status === "picked" ? ["dc", "db"] : ["db"];
+    if (c.role === "customer" && S.mine && S.mine.id === c.oid) { const ds = S.mine.delivery && S.mine.delivery.status; c.chs = ds === "assigned" || ds === "picked" || (chatData[ckey(c.oid, "dc")] || []).length ? ["dc", "cb"] : ["cb"]; }
+    if (c.role === "driver" && S.cur && S.cur.id === c.oid) c.chs = S.cur.status === "picked" ? ["dc", "db"] : ["db", "dc"];
     if (c.role === "business") { const o = S.orders.find(x => x.id === c.oid); if (o) c.chs = o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"]; }
     if (!c.chs.includes(c.ch)) c.ch = c.chs[0];
     const msgs = chatData[ckey(c.oid, c.ch)] || [], dark = c.role !== "customer", err = chatErr[ckey(c.oid, c.ch)];
@@ -1453,7 +1456,8 @@
     [ordUnsub, myMenuUnsub].forEach(f => { try { f && f(); } catch (e) {} });
     S.orders = []; S.ordersReady = false; S.myMenu = []; S.myMenuReady = false; S.meDraft = null; S.meDirty = false;
     ordUnsub = db.collection(`restaurants/${rid}/orders`).orderBy("createdAt", "desc").limit(600).onSnapshot(
-      snap => { const before = new Set(S.orders.filter(o => o.status === "new" || o.status === "await").map(o => o.id)); S.orders = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+      snap => { const before = new Set(S.orders.filter(o => o.status === "new" || o.status === "await").map(o => o.id)), arr = new Set(S.orders.filter(o => o.delivery && o.delivery.arrivedAt).map(o => o.id)); S.orders = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        if (S.ordersReady) { const a = S.orders.find(o => o.delivery && o.delivery.arrivedAt && o.delivery.status === "assigned" && !arr.has(o.id)); if (a) { beep(); setTimeout(beep, 300); toast(`📍 ${a.delivery.driverName || "El repartidor"} llegó por el pedido #${a.num}.`); } }
         if (S.ordersReady && S.orders.some(o => (o.status === "new" || o.status === "await") && !before.has(o.id))) beep(); S.ordersReady = true; paint(renderPanel); },
       err => { console.error("OnRoute: pedidos", err); S.ordersReady = true; paint(renderPanel); }
     );
@@ -1716,7 +1720,7 @@
         ${o.promo ? `<div class="onote promo"><b>Promo:</b> ${esc(o.promo.title || "")}${o.promo.code ? " · código " + esc(o.promo.code) : ""} · −${money(o.promo.off)}</div>` : ""}
         ${o.reward ? `<div class="onote prize"><b>Premio:</b> ${esc(o.reward)} · ${rewardCheck(o)}</div>` : ""}
         <div class="o-who">${esc(o.who)} · <span class="mono">${money(o.total)}</span>${o.pickup === "30" ? " · llega en 30 min" : ""}</div>
-        ${o.delivery ? `<div class="onote dlv">${I.car} <b>A domicilio</b> · ${o.delivery.driverName ? `Repartidor: ${esc(o.delivery.driverName)}${o.delivery.driverCar ? " · " + esc(o.delivery.driverCar) : ""}${o.delivery.driverPlate ? " · " + esc(o.delivery.driverPlate) : ""}${o.delivery.status === "picked" ? " · ya lo recogió" : " · en camino al negocio"}` : "Buscando repartidor…"}</div>` : ""}
+        ${o.delivery ? `<div class="onote dlv">${I.car} <b>A domicilio</b> · ${o.delivery.driverName ? `Repartidor: ${esc(o.delivery.driverName)}${o.delivery.driverCar ? " · " + esc(o.delivery.driverCar) : ""}${o.delivery.driverPlate ? " · " + esc(o.delivery.driverPlate) : ""}${o.delivery.status === "picked" ? " · ya lo recogió" : o.delivery.arrivedAt ? `</div><div class="onote arrived">📍 <b>¡${esc(o.delivery.driverName || "El repartidor")} ya llegó por el pedido!</b> · ${ago(o.delivery.arrivedAt)}` : " · en camino al negocio"}` : "Buscando repartidor…"}</div>` : ""}
         <span class="paychip ${o.paid || (o.paidOk && !cashOf(o)) ? "paid" : ""}">${o.paid ? "Pagado con tarjeta" : o.payParts ? (cashOf(o) ? `${cashOf(o) < o.total ? esc(payLine(o)) + " · " : ""}${o.delivery ? "el repartidor cobra" : "cobrar"} ${money(cashOf(o))} en efectivo` : `Pagado · ${esc(payLine(o))}`) : "Cobrar al entregar"}</span>${visitsOf(o) > 1 ? `<span class="paychip freq">Cliente frecuente · visita ${visitsOf(o)}</span>` : ""}
         ${o.delivery && k === "ready" ? `<button class="o-btn" disabled>Esperando al repartidor</button>` : `<button class="o-btn" data-adv="${esc(o.id)}">${act[k]}</button>`}</div>`).join("")
       : `<div class="empty">${k === "new" ? (S.ordersReady ? "Sin pedidos nuevos." : "Cargando…") : "Sin pedidos"}</div>`}</div>`; }).join("");
@@ -2656,8 +2660,8 @@ Reglas:
       const oid = d.chat, r = S.route.name;
       if (r === "panel") { const o = S.orders.find(x => x.id === oid); if (!o) return; const chs = o.delivery && o.delivery.driverName ? ["cb", "db"] : ["cb"];
         openChat({ rid: S.my.id, oid, role: "business", chs, ch: chs.find(ch => unread(oid, ch, "business")) || d.ch || "cb", num: o.num, title: o.who }); }
-      else if (r === "driver") { const C = S.cur; if (!C) return; const chs = C.status === "picked" ? ["dc", "db"] : ["db"]; openChat({ rid: C.rid, oid, role: "driver", chs, ch: d.ch, num: C.num, title: d.ch === "dc" ? "Cliente" : C.rname }); }
-      else { const o = S.mine; if (!o) return; const chs = o.delivery && (o.delivery.status === "picked" || (chatData[ckey(oid, "dc")] || []).length) ? ["dc", "cb"] : ["cb"]; openChat({ rid: S.rid, oid, role: "customer", chs, ch: d.ch, num: o.num, title: S.R ? S.R.name : "Mensajes" }); }
+      else if (r === "driver") { const C = S.cur; if (!C) return; const chs = C.status === "picked" ? ["dc", "db"] : ["db", "dc"]; openChat({ rid: C.rid, oid, role: "driver", chs, ch: d.ch, num: C.num, title: d.ch === "dc" ? "Cliente" : C.rname }); }
+      else { const o = S.mine; if (!o) return; const chs = o.delivery && (["assigned", "picked"].includes(o.delivery.status) || (chatData[ckey(oid, "dc")] || []).length) ? ["dc", "cb"] : ["cb"]; openChat({ rid: S.rid, oid, role: "customer", chs, ch: d.ch, num: o.num, title: S.R ? S.R.name : "Mensajes" }); }
       return;
     }
     if (d.chtab) { S.chat.ch = d.chtab; markSeen(); renderChat(); chatRepaint(); return; }

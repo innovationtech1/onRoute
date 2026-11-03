@@ -242,7 +242,8 @@ service cloud.firestore {
           function ord() { return get(/databases/$(database)/documents/restaurants/$(rid)/orders/$(oid)).data; }
           function dlvPath() { return /databases/$(database)/documents/deliveries/$(oid); }
           function isDrv() { return signedIn() && exists(dlvPath()) && get(dlvPath()).data.driverUid == request.auth.uid; }
-          function picked() { return exists(dlvPath()) && get(dlvPath()).data.status == 'picked'; }
+          // Repartidor ↔ cliente: desde que el repartidor acepta la entrega hasta que la entrega.
+          function picked() { return exists(dlvPath()) && get(dlvPath()).data.status in ['assigned','picked']; }
           allow read: if resource.data.ch in ['cb','dc']
             || (resource.data.ch == 'db' && (isOwnerOf(rid) || isDrv() || isAdmin()));
           allow create: if request.resource.data.keys().hasOnly(['ch','from','name','text','at'])

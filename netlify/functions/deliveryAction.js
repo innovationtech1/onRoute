@@ -9,7 +9,7 @@ exports.handler = handler("deliveryAction", async (body, event) => {
   const user = await userOf(event);
   if (!user) return [401, { error: "Inicia sesión con tu cuenta de repartidor.", detail: event.authErr || "" }];
   const id = String(body.id || "").replace(/[^A-Za-z0-9]/g, ""), action = String(body.action || "");
-  if (!id || !["accept", "release", "picked", "delivered"].includes(action)) return [400, { error: "Acción no válida." }];
+  if (!id || !["accept", "release", "arrived", "picked", "delivered"].includes(action)) return [400, { error: "Acción no válida." }];
   const ds = await db().doc(`drivers/${user.uid}`).get(), D = ds.exists ? ds.data() : null;
   if (!D || D.status !== "active") return [403, { error: "Tu cuenta de repartidor no está activa." }];
   const ref = db().doc(`deliveries/${id}`);
@@ -44,9 +44,15 @@ exports.handler = handler("deliveryAction", async (body, event) => {
 
   if (action === "release") {
     if (d.status !== "assigned") return [409, { error: "Ya recogiste el pedido; ya no puedes soltarlo." }];
-    await ref.update({ status: "searching", driverUid: null, driverName: null, driverCar: null, driverPlate: null, assignedAt: null, driverLoc: null });
+    await ref.update({ status: "searching", driverUid: null, driverName: null, driverCar: null, driverPlate: null, assignedAt: null, driverLoc: null, arrivedAt: null });
     await db().doc(`drivers/${user.uid}`).update({ current: null });
-    await oref.update({ "delivery.status": "searching", "delivery.driverName": null, "delivery.driverCar": null, "delivery.driverPlate": null });
+    await oref.update({ "delivery.status": "searching", "delivery.arrivedAt": null, "delivery.driverName": null, "delivery.driverCar": null, "delivery.driverPlate": null });
+    return [200, { ok: true }];
+  }
+  // El repartidor llegó al negocio: el negocio lo ve en su tablero (y el cliente en su pedido).
+  if (action === "arrived") {
+    if (d.status !== "assigned") return [409, { error: "Esta entrega ya no está en camino al negocio." }];
+    if (!d.arrivedAt) { await ref.update({ arrivedAt: now }); await oref.update({ "delivery.arrivedAt": now }); }
     return [200, { ok: true }];
   }
   if (action === "picked") {

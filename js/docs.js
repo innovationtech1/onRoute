@@ -28,7 +28,7 @@
           <li><b>Elige cómo recibirlo.</b> <i>Recoger</i> en el negocio (sin costo) o <i>A domicilio</i> si el negocio lo ofrece. El envío cuesta ${fee}; la propina es opcional y es 100% para el repartidor.</li>
           <li><b>Paga como prefieras.</b> Con tarjeta, Apple Pay o Google Pay (pago seguro con Stripe), Zelle, Cash App o efectivo (al recoger o al repartidor), según lo que acepte cada negocio. También puedes <b>combinar dos</b>: por ejemplo una parte por Zelle y el resto en efectivo. Con Zelle o Cash App te mostramos a dónde mandar el dinero; tu pedido entra a la cocina cuando el negocio confirma que le llegó.</li>
           <li><b>Sigue tu pedido.</b> Ves cada paso en vivo y, a domicilio, al repartidor en el mapa. Toca <i>Avísame</i> para recibir notificación cuando esté listo.</li>
-          <li><b>Mensajes.</b> Desde tu pedido escribe al negocio con 💬, y al repartidor cuando ya va en camino.</li>
+          <li><b>Mensajes.</b> Desde tu pedido escribe al negocio con 💬, y al repartidor desde que acepta tu entrega.</li>
         </ol>
         <h3>Cuenta (opcional)</h3>
         <p>Puedes pedir sin cuenta. Con cuenta guardas tu historial, tus negocios favoritos y juntas sellos de cliente frecuente.</p>` },
@@ -56,7 +56,7 @@
           <li><b>Elige cómo cobrar:</b> depósito automático a tu banco con Stripe (retiro al instante y formulario 1099) o Cash App, Zelle o Venmo (OnRoute te paga cada semana).</li>
           <li><b>Conéctate</b> con el interruptor y deja la app abierta. Suena un aviso cuando hay entregas cerca.</li>
           <li><b>Acepta</b> la que te convenga: ves cuánto ganas, la distancia y la propina.</li>
-          <li><b>Recoge:</b> usa <i>Cómo llegar</i>, confirma el número de pedido y toca <i>Ya recogí</i>.</li>
+          <li><b>Recoge:</b> usa <i>Cómo llegar</i>. Al llegar toca <i>Llegué al negocio</i> (al negocio le suena un aviso), confirma el número de pedido y toca <i>Ya recogí</i>. Desde que aceptas puedes escribirle al cliente por el chat.</li>
           <li><b>Entrega:</b> ves la dirección e indicaciones del cliente; llámale o escríbele si hace falta y toca <i>Entregué el pedido</i>. Si el pedido es en efectivo, la app te dice exactamente cuánto cobrar.</li>
         </ol>
         <h3>Ganancias</h3>

@@ -905,3 +905,5 @@ body:not([data-app="panel"]):not([data-app="admin"]):not([data-app="driver"]) .m
 .split-amt{min-width:0;overflow:hidden}
 .split-amt:focus-within{border-color:var(--green)}
 .split-amt input:focus-visible{outline:none}
+.onote.arrived{background:var(--ok-bg);color:var(--ok);font-size:14px;animation:arrPulse 1.6s ease 3}
+@keyframes arrPulse{50%{box-shadow:0 0 0 4px color-mix(in srgb,var(--ok) 35%,transparent)}}
