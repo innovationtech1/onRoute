@@ -117,6 +117,9 @@
   const cardOn = () => !!(window.ONROUTE_CARD_PAYMENTS && window.ONROUTE_API && S.R && S.R.stripeReady === true);
   // Formas de pago: tarjeta (Stripe) y a mano (Zelle, Cash App, efectivo). A mano se pueden combinar dos.
   const PAYN = { card: "Tarjeta", zelle: "Zelle", cashapp: "Cash App", cash: "Efectivo" };
+  // Apple Pay y Google Pay van dentro del pago con tarjeta de Stripe: la página de pago los muestra sola
+  // cuando el celular o navegador los tiene configurados. Aquí solo se destaca el que tiene el cliente.
+  const WALLET = (() => { const ua = navigator.userAgent || ""; return /iPhone|iPad|iPod|Macintosh/.test(ua) && /Safari/.test(ua) && !/Chrome|CriOS|FxiOS|Edg/.test(ua) ? "Apple Pay" : /Android|Chrome/.test(ua) ? "Google Pay" : ""; })();
   function manualOf(R, dl) {
     const P = (R && R.payments) || {}, out = [];
     if (dl ? P.cashDelivery !== false : P.cash !== false) out.push("cash");
@@ -688,12 +691,12 @@
     const ms = payMethods(R, dl), man = manualOf(R, dl);
     if (!ms.length) return `<p class="err">Este negocio todavía no configura sus formas de pago.</p>`;
     if (ms.length === 1 && ms[0] === "cash" && !dl) return "";
-    const sub = { card: "Pago seguro con Stripe", zelle: "Desde tu banco", cashapp: "Desde tu app", cash: dl ? "Al repartidor" : "Al recoger" };
+    const sub = { card: "Apple Pay · Google Pay", zelle: "Desde tu banco", cashapp: "Desde tu app", cash: dl ? "Al repartidor" : "Al recoger" };
     const sp = S.split || {}, a = man.includes(sp.a) ? sp.a : (man.find(m => m !== "cash") || man[0]), b = man.includes(sp.b) && sp.b !== a ? sp.b : (man.includes("cash") && a !== "cash" ? "cash" : man.find(m => m !== a));
     if (S.payMode === "split") S.split = { a, b, amt: sp.amt };
     const amt = num(Number((S.split || {}).amt)), rest = r2(tot - amt);
     return `<div class="field"><span class="flabel">¿Cómo quieres pagar?</span><div class="choices pays">
-      ${ms.map(m => `<button data-paymode="${m}" aria-pressed="${S.payMode === m}"><b>${PAYN[m]}</b>${sub[m]}</button>`).join("")}
+      ${ms.map(m => `<button data-paymode="${m}" aria-pressed="${S.payMode === m}"><b>${m === "card" ? (WALLET ? `${WALLET} o tarjeta` : "Tarjeta") : PAYN[m]}</b>${m === "card" ? (WALLET ? "Pago seguro con Stripe" : sub.card) : sub[m]}</button>`).join("")}
       ${man.length >= 2 ? `<button data-paymode="split" aria-pressed="${S.payMode === "split"}"><b>Combinar</b>Dos formas de pago</button>` : ""}</div>
       ${S.payMode === "split" ? `<div class="split">
         <div class="split-row"><select id="splitA" aria-label="Primera forma de pago">${man.map(m => `<option value="${m}" ${m === a ? "selected" : ""}>${PAYN[m]}</option>`).join("")}</select>
@@ -742,9 +745,9 @@
         <div class="totals">${pr ? `<div class="sub"><span>Subtotal</span><span class="mono">${money(sub)}</span></div><div class="disc"><span>${esc(pr.p.title || promoText(pr.p))}${pr.p.code ? " · " + esc(pr.p.code) : ""}</span><span class="mono">−${money(pr.off)}</span></div>` : ""}${dl ? `<div class="sub"><span>Comida</span><span class="mono">${money(sub)}</span></div><div class="sub"><span>Envío${q && !q.far ? ` (${q.mi.toFixed(1)} mi)` : ""}</span><span class="mono">${q && !q.far ? money(fee) : "—"}</span></div>${tip ? `<div class="sub"><span>Propina</span><span class="mono">${money(tip)}</span></div>` : ""}` : ""}<div class="grand"><span>Total</span><span class="mono">${money(tot)}</span></div><p class="hint">${esc(R.menuNote && /impuesto/i.test(R.menuNote) ? "Impuesto incluido." : "")}</p></div>
         <div class="saving">Pidiendo directo y no en una app de delivery, ${esc(R.name)} se queda con unos ${money(tot * COMMISSION)} más.</div>
         ${S.payErr ? `<p class="err" role="alert">${esc(S.payErr)}</p>` : ""}
-        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) || !payMethods(R, dl).length ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : dl && !q ? "Elige tu dirección de la lista para continuar" : dl && q.far ? "Tu dirección está fuera del área de entrega" : card ? `Pagar ${money(tot)} con tarjeta` : S.payMode === "cash" ? `Enviar pedido · pagas ${money(tot)} ${dl ? "al recibirlo" : "al recoger"}` : `Enviar pedido · ${money(tot)} por ${S.payMode === "split" ? "dos formas de pago" : PAYN[S.payMode]}`}</button>
+        <button class="pay" data-act="pay" ${closed || S.busy || (dl && (!q || q.far)) || !payMethods(R, dl).length ? "disabled" : ""}>${closed ? "Este negocio no recibe pedidos ahora" : S.busy ? (card ? "Abriendo pago seguro…" : "Enviando…") : dl && !q ? "Elige tu dirección de la lista para continuar" : dl && q.far ? "Tu dirección está fuera del área de entrega" : card ? `Pagar ${money(tot)}${WALLET ? ` con ${WALLET} o tarjeta` : " con tarjeta"}` : S.payMode === "cash" ? `Enviar pedido · pagas ${money(tot)} ${dl ? "al recibirlo" : "al recoger"}` : `Enviar pedido · ${money(tot)} por ${S.payMode === "split" ? "dos formas de pago" : PAYN[S.payMode]}`}</button>
         ${S.user ? `<p class="hint" style="text-align:center">Pides como ${esc(S.user.email || "")}. Lo verás en Mis pedidos.</p>` : `<p class="hint" style="text-align:center"><a href="./#cuenta" data-act="loginreturn">Crea tu cuenta o entra</a> para guardar tus pedidos. También puedes pedir sin cuenta.</p>`}
-        <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe.") : S.payMode === "cash" ? (dl ? "Pagas en efectivo al repartidor cuando te entregue." : "Pagas en efectivo al recoger.") : "Al enviar tu pedido te mostramos a dónde mandar el pago. Entra a la cocina cuando el negocio lo confirme."}</p>
+        <p class="hint" style="text-align:center">${card ? (window.ONROUTE_STRIPE_TEST !== false ? "Modo de prueba: usa la tarjeta 4242 4242 4242 4242, cualquier fecha futura y cualquier CVC." : "Te llevamos a la página de pago segura de Stripe. Ahí aparece Apple Pay o Google Pay si lo tienes en tu celular.") : S.payMode === "cash" ? (dl ? "Pagas en efectivo al repartidor cuando te entregue." : "Pagas en efectivo al recoger.") : "Al enviar tu pedido te mostramos a dónde mandar el pago. Entra a la cocina cuando el negocio lo confirme."}</p>
       </div>`;
   }
   function dlvStatusHTML(o) {

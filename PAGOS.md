@@ -69,3 +69,10 @@ crear el webhook también en modo real y poner `window.ONROUTE_STRIPE_TEST = fal
 - El negocio ve la columna **Por confirmar** y toca *Pago recibido* / *Aceptar pedido* o *Rechazar* → función **orderAction** (solo el dueño). Al confirmar pasa a `new` y, si es a domicilio, se publica para los repartidores con `collect` (efectivo que cobra el repartidor).
 - Al entregar, `payDriver` no transfiere nada por Stripe: marca `payout: "ledger"` y guarda `settle = { drv: collect − driverPay, biz: prepaid − food }` (positivo = le debe a OnRoute; negativo = OnRoute le debe). La suma es la parte de OnRoute del envío.
 - El administrador ve los saldos en **Admin → Entregas → Saldos de pagos a mano** y toca *Marcar saldado* cuando se pagan.
+
+## Apple Pay y Google Pay
+
+- Van dentro del pago con tarjeta: Stripe Checkout los muestra solos (métodos de pago dinámicos; el código no fija `payment_method_types`).
+- Se activan en Stripe → Configuración → Pagos → Métodos de pago → **Cuentas conectadas** (Apple Pay y Google Pay "Activado por defecto").
+- La página de Stripe es de Stripe, así que no hace falta registrar el dominio getonroute.app para Apple Pay.
+- La app solo cambia el texto: en iPhone/Mac con Safari dice "Apple Pay o tarjeta"; en Android/Chrome, "Google Pay o tarjeta".
